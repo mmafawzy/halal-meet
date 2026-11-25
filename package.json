@@ -1,0 +1,12 @@
+{
+  "name": "halal-meet",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "build:core": "pnpm --filter @halal-meet/core build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev:api": "pnpm --filter @halal-meet/api dev",
+    "dev:mobile": "pnpm --filter @halal-meet/mobile start"
+  }
+}

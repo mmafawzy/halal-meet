@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mobile-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "G:\\Code\\halal-meet\\apps\\mobile\\preview.cmd"],
+      "port": 8081
+    }
+  ]
+}

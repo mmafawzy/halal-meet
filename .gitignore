@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.expo/
+.env
+.env.local
+*.log
+apps/api/.data/
+coverage/
+web-build/
+ios/
+android/
