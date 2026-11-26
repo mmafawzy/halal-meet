@@ -1,5 +1,4 @@
 import type { PhotoVisibility } from '@halal-meet/core';
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -7,16 +6,20 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { PHOTO_VISIBILITIES, PHOTO_VISIBILITY_ICONS, previewPhotoState } from '@/components/onboarding/draft';
 import { InlineNote, OnboardingFrame } from '@/components/onboarding/OnboardingFrame';
 import { useOnboardingSave } from '@/components/onboarding/useOnboardingSave';
+import { pickPhoto } from '@/components/photos/pickPhoto';
+import { photoErrorMessage, useMyPhotos, useUploadPhoto } from '@/components/photos/usePhotos';
+import type { PhotoUploadInput } from '@/api';
 import { Avatar, Button, Card, Icon, Text } from '@/components/ui';
 import { useT } from '@/i18n';
 import { useSession } from '@/state/session';
+import { useUi } from '@/state/ui';
 import { colors, palette, radii, spacing } from '@/theme';
 
 /**
  * Screen 10 — photo + photo privacy.
  *
- * The contract has no upload route yet, so the picked photo stays on the device and only its URI is
- * kept in the draft. The preview below shows exactly what an introduction sees for each visibility
+ * The picked photo is uploaded as the main photo (POST /me/photos; the mock keeps the URI) when the
+ * member continues, and its URI is kept in the draft for the preview. The preview below shows exactly what an introduction sees for each visibility
  * level, including the honest note that a verified photo is never shown without permission.
  */
 export default function PhotoScreen() {
@@ -31,30 +34,43 @@ export default function PhotoScreen() {
   const [uri, setUri] = useState(draftUri);
   const [visibility, setVisibility] = useState<PhotoVisibility>(draftVisibility);
   const [denied, setDenied] = useState(false);
+  const [picked, setPicked] = useState<PhotoUploadInput | null>(null);
+  const myPhotos = useMyPhotos();
+  const upload = useUploadPhoto();
 
   const pick = async () => {
     setDenied(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    const result = await pickPhoto();
+    if (result === 'denied') {
       setDenied(true);
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.8,
-    });
-    const asset = result.assets?.[0];
-    if (!result.canceled && asset) setUri(asset.uri);
+    if (result) {
+      setUri(result.uri);
+      setPicked(result);
+    }
+  };
+
+  /** Uploads a newly picked photo as the main photo; a failure never blocks onboarding. */
+  const uploadPicked = async () => {
+    if (!picked) return;
+    try {
+      await upload.mutateAsync({ ...picked, position: 0 });
+      setPicked(null);
+    } catch (e) {
+      useUi.getState().showToast({ message: `${photoErrorMessage(e)} ${t('photos.onboarding.failed')}`, tone: 'danger' });
+    }
   };
 
   const next = async () => {
+    await uploadPicked();
     updateDraft({ photoUri: uri, photoVisibility: visibility });
     const ok = await save({ photoUri: uri, photoVisibility: visibility });
     if (ok) router.push('/(onboarding)/religion');
   };
 
+  // A photo uploaded earlier (e.g. after coming back to this step) still previews here.
+  const previewUri = uri ?? myPhotos.data?.find((p) => p.isMain)?.url ?? null;
   const state = previewPhotoState(visibility);
   const name = firstName.trim() || t('common.actions.save');
 
@@ -66,7 +82,7 @@ export default function PhotoScreen() {
       showStrength={false}
       footer={
         <>
-          <Button label={t('common.actions.continue')} size="lg" fullWidth loading={saving} onPress={() => void next()} testID="photo-continue" />
+          <Button label={t('common.actions.continue')} size="lg" fullWidth loading={saving || upload.isPending} onPress={() => void next()} testID="photo-continue" />
           {/* Adding a photo is optional — nobody is trapped here. */}
           <Button label={t('onboarding.photo.skip')} variant="ghost" fullWidth onPress={() => void next()} />
         </>
@@ -74,7 +90,7 @@ export default function PhotoScreen() {
     >
       <Card>
         <View style={styles.previewHead}>
-          <Avatar id={userId ?? 'me'} name={name} photoUrl={uri} photoState={state} size={92} shape="rounded" />
+          <Avatar id={userId ?? 'me'} name={name} photoUrl={previewUri} photoState={state} size={92} shape="rounded" />
           <View style={{ flex: 1, gap: spacing.xs }}>
             <Text variant="overline" color={colors.textMuted}>
               {t('onboarding.photo.previewLabel')}
@@ -98,7 +114,7 @@ export default function PhotoScreen() {
 
       <View style={{ gap: spacing.sm }}>
         <Button
-          label={uri ? t('onboarding.photo.change') : t('onboarding.photo.choose')}
+          label={previewUri ? t('onboarding.photo.change') : t('onboarding.photo.choose')}
           variant="secondary"
           icon="camera-outline"
           fullWidth

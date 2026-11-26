@@ -12,6 +12,7 @@ import { useUi } from '@/state/ui';
 import { colors, palette, radii, spacing } from '@/theme';
 
 import { TopPicksRow } from './TopPicksRow';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 
 /** Everything pinned above the feed: greeting, scope, one banner slot, Top Picks and "new since". */
 export function FeedHeader({ scope, newSince }: { scope: FeedScope | null; newSince: number }) {
@@ -33,6 +34,7 @@ export function FeedHeader({ scope, newSince }: { scope: FeedScope | null; newSi
             </Text>
           ) : null}
         </View>
+        <NotificationBell />
         <IconButton
           name="airplane-outline"
           accessibilityLabel={t('discover.header.passport')}

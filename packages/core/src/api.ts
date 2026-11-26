@@ -102,6 +102,8 @@ export interface MeResponse {
   onboardingComplete: boolean;
   entitlements: Entitlements;
   usage: Usage;
+  /** Account role (moderation console is shown to 'moderator' / 'admin'). Optional for older servers. */
+  role?: 'member' | 'guardian' | 'matchmaker' | 'moderator' | 'admin';
 }
 
 export interface AnswersBody { answers: Answer[] }

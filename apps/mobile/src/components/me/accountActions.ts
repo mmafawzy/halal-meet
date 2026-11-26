@@ -9,8 +9,6 @@ import { useLocal } from '@/state/local';
 import { useSession } from '@/state/session';
 import { useUi } from '@/state/ui';
 
-import { useMeLocal } from './meStore';
-
 /** Sign out, and the mock-only "Reset all demo data" (Profile → Demo tools → Reset). */
 export function useAccountActions() {
   const qc = useQueryClient();
@@ -25,7 +23,6 @@ export function useAccountActions() {
   const resetDemo = useCallback(async () => {
     await api.dev?.reset();
     useLocal.getState().reset();
-    useMeLocal.getState().reset();
     await signOut();
     useUi.getState().showToast({ message: tNow('me.demo.resetDone'), tone: 'success' });
   }, [signOut]);

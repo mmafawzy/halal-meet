@@ -101,6 +101,7 @@ export class AccountController {
       onboardingComplete: !!member && this.members.isOnboardingComplete(member),
       entitlements,
       usage,
+      role: account.role as NonNullable<MeResponse['role']>,
     };
   }
 

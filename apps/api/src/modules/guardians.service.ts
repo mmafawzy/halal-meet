@@ -26,6 +26,7 @@ import * as t from '../db/schema';
 import { uuidv7 } from '../common/ids';
 import { InteractionsService } from './interactions.service';
 import { MembersService } from './members';
+import { NotificationsService } from './notifications.service';
 
 /** Invited + active + paused guardians a member may have at once. */
 export const MAX_GUARDIANS = 5;
@@ -46,6 +47,7 @@ export class GuardiansService {
     @Inject(DB) private readonly db: Db,
     @Inject(MembersService) private readonly members: MembersService,
     @Inject(InteractionsService) private readonly interactions: InteractionsService,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
   ) {}
 
   // ───────── Member side ─────────
@@ -100,8 +102,9 @@ export class GuardiansService {
 
   /** Removing deletes the link (and the guardian's opinions); the guardian loses access immediately. */
   async remove(memberId: string, id: string): Promise<void> {
-    await this.own(memberId, id);
+    const removed = await this.own(memberId, id);
     await this.db.delete(t.guardianships).where(eq(t.guardianships.id, id));
+    if (removed.guardianId) await this.notifications.notify(removed.guardianId, 'guardian_removed', { memberId });
   }
 
   async opinionsForMember(memberId: string): Promise<GuardianOpinion[]> {
@@ -158,6 +161,7 @@ export class GuardiansService {
       .where(and(eq(t.guardianships.id, row.id), eq(t.guardianships.inviteTokenHash, hashCode(code))))
       .returning();
     if (!updated) throw new ConflictException({ error: 'already_accepted' });
+    await this.notifications.notify(updated.memberId, 'guardian_accepted', { guardianshipId: updated.id, guardianName: updated.name, relationship: updated.relationship });
     const [link] = await this.linksFor(accountId, [updated]);
     return link!;
   }
@@ -287,6 +291,7 @@ export class GuardiansService {
         target: [t.guardianOpinions.guardianshipId, t.guardianOpinions.subjectId],
         set: { opinion: body.opinion, note, updatedAt: new Date() },
       });
+    await this.notifications.notify(memberId, 'guardian_opinion', { guardianshipId: row.id, guardianName: row.name, relationship: row.relationship, subjectId, opinion: body.opinion });
   }
 
   /** Approve (or ask to discuss first) a match moving to stage 5 or 6. Approving re-evaluates the stage at once. */
@@ -305,6 +310,7 @@ export class GuardiansService {
         set: { decision: body.decision, decidedAt: new Date() },
       });
     if (body.decision === 'approve') await this.interactions.recomputeStage(matchId);
+    await this.notifications.notify(memberId, 'guardian_stage_decision', { guardianshipId: row.id, guardianName: row.name, relationship: row.relationship, matchId, stage: body.stage, decision: body.decision });
   }
 
   // ───────── Shares ─────────

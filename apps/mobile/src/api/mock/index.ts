@@ -79,6 +79,10 @@ import {
   byAuthor,
   detectRisk,
 } from './content';
+import { createMockAdmin } from './admin';
+import { createMockPrivacyApi } from './privacy';
+import { createMockNotifications } from './notifications';
+import { createMockPhotoApi } from './photos';
 import { hashString, Rng } from './rng';
 import { generateSeeds, type SeedProfile } from './seed';
 
@@ -362,6 +366,47 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
   const seedById = (id: string) => db.seeds.find((s) => s.id === id);
   const viewerGender = (): Gender => db.profile?.gender ?? 'male';
 
+  // Notifications inbox (see ./notifications.ts): demo events below call notifMock.add().
+  const notifMock = createMockNotifications({ op, db: () => db, now, isFree: () => db.tier === 'free', nameOf: (id) => seedById(id)?.name[locale() === 'ar' ? 1 : 0] ?? null });
+
+  // Moderation console (separate store; see ./admin.ts). Imports the reports you file here.
+  const adminMock = createMockAdmin({
+    storage,
+    latencyMs: latency,
+    now,
+    getLocale: () => locale(),
+    accountId: () => db.accountId,
+    me: () => (db.profile ? { firstName: db.profile.firstName, gender: db.profile.gender, country: db.profile.country, city: db.profile.city } : null),
+    userReports: () => db.reports,
+    member: (id) => {
+      const s = seedById(id);
+      return s ? { names: s.name, gender: s.match.gender, age: s.match.age, country: s.match.country, city: s.match.city, verified: s.verifications.includes('identity') } : null;
+    },
+    conversationWith: (id) => db.matches.filter((m) => m.otherId === id).flatMap((m) => db.messages[m.matchId] ?? []),
+  });
+
+  // Photos & photo privacy (state lives in db.photoMock; see ./photos.ts).
+  const photoMock = createMockPhotoApi({
+    op,
+    db: () => db,
+    now,
+    requesters: () =>
+      db.seeds
+        .filter((x) => x.match.gender !== viewerGender())
+        .slice(3, 5)
+        .map((x) => ({
+          id: x.id,
+          firstName: locale() === 'ar' ? x.name[1] : x.name[0],
+          gender: x.match.gender,
+          age: x.match.age,
+          country: x.match.country,
+          city: x.match.city,
+          photoUrl: null,
+          photoState: x.photoState,
+        })),
+    seedPhotoState: (id) => seedById(id)?.photoState ?? null,
+  });
+
   // ───────── derived state ─────────
 
   function tierLimits() {
@@ -442,6 +487,21 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
       topPicksPerDay: limits.topPicksPerDay,
       resetsAt: new Date(today + DAY).toISOString(),
     };
+  }
+
+  /** GET /me/billing in the demo: everything is a dev grant (no store, no management link). */
+  function mockBilling(): import('@halal-meet/core').MeBillingResponse {
+    const renews = new Date(now().getTime() + 30 * DAY).toISOString();
+    const subscriptions: import('@halal-meet/core').BillingSubscriptionView[] = [];
+    if (db.tier === 'plus' || db.tier === 'gold' || db.tier === 'elite') {
+      const sku = db.tier === 'plus' ? ('plus_monthly' as const) : db.tier === 'gold' ? ('gold_monthly' as const) : null;
+      subscriptions.push({ id: 'mock-plan', sku, tier: db.tier, store: 'dev', status: 'active', currentPeriodEnd: renews, autoRenew: true, billingIssue: false, managementUrl: null });
+    }
+    if (db.passportAddon) {
+      subscriptions.push({ id: 'mock-addon', sku: 'passport_addon_monthly', tier: 'passport_addon', store: 'dev', status: 'active', currentPeriodEnd: renews, autoRenew: true, billingIssue: false, managementUrl: null });
+    }
+    const passes = passActive() && db.passExpiresAt ? [{ id: 'mock-pass', sku: 'passport_pass_7d' as const, store: 'dev', expiresAt: db.passExpiresAt, free: false }] : [];
+    return { tier: db.tier, subscriptions, passes, managementUrl: null, devGrantAvailable: true, storeSyncAvailable: false };
   }
 
   function entitlements(): Entitlements {
@@ -548,6 +608,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
         at: new Date(t - i * 5 * 3600000).toISOString(),
         note: i === 0 ? byAuthor(INTEREST_NOTES[0]!, loc, s.match.gender) : null,
       });
+      notifMock.add(i === 0 ? 'serious_interest' : 'interest', { fromId: s.id, level: i === 0 ? 'serious' : 'interest' }, new Date(t - i * 5 * 3600000));
     });
   }
 
@@ -587,7 +648,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
       country: seed.match.country,
       city: seed.match.city,
       photoUrl: null,
-      photoState: seed.photoState,
+      photoState: photoMock.stateFor(seed.id, seed.photoState),
       verifications: seed.verifications,
       halalMode: seed.match.halalMode,
       intention: seed.match.intention,
@@ -901,6 +962,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
       if (e.kind === 'reply') {
         const text = e.risky ? SAFE_REPLY : REPLIES[db.replyCursor++ % REPLIES.length]!;
         list.push({ id: nextId('msg'), matchId: m.matchId, senderId: seed.id, kind: 'text', body: byAuthor(text, locale(), seed.match.gender), topicKey: null, topicAnswers: null, sentAt: at, risk: null });
+        notifMock.add('message', { matchId: m.matchId, messageId: list[list.length - 1]!.id, senderId: seed.id }, new Date(e.due));
       } else if (e.kind === 'topic_answer' && e.messageId) {
         const msg = list.find((x) => x.id === e.messageId);
         if (msg?.topicKey && msg.topicAnswers) {
@@ -954,6 +1016,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
     if (matched) {
       const m = createMatch(body.toId);
       matchId = m.matchId;
+      notifMock.add('match', { matchId: m.matchId, otherId: body.toId, initiatedByYou: true });
       db.inbound = db.inbound.filter((x) => x.fromId !== body.toId);
       // they say salam a little later
       db.pending.push({ due: now().getTime() + replyDelay * 3, kind: 'reply', matchId: m.matchId });
@@ -1109,6 +1172,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
         note: ex.note[loc],
         updatedAt: new Date(now().getTime() - (i + 1) * 3600000).toISOString(),
       });
+      notifMock.add('guardian_opinion', { guardianshipId: g.id, guardianName: g.name, relationship: g.relationship, subjectId: m.otherId, opinion: ex.opinion });
     });
   }
 
@@ -1116,6 +1180,17 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
 
   const api: HalalMeetApi = {
     mode: 'mock',
+    privacy: createMockPrivacyApi({
+      op,
+      db: () => db,
+      now,
+      locale,
+      ensureSeeds: () => ensureSeeds(),
+      defaultPreferences: () => db.prefs ?? defaultPrefs(viewerGender(), db.profile ? ageFrom(db.profile.birthDate, now()) : 28),
+    }),
+    notifications: notifMock.api,
+    admin: adminMock.api,
+    ...photoMock,
 
     otpRequest: (body) =>
       op(() => {
@@ -1140,6 +1215,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
           onboardingComplete: db.profile !== null && db.answers.length >= 3,
           entitlements: entitlements(),
           usage: usage(),
+          role: adminMock.role(),
         };
       }),
 
@@ -1378,6 +1454,21 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
         if (d) d.status = 'cancelled';
         db.destinations = db.destinations.filter((x) => x.status !== 'cancelled');
         db.feedOrder = null;
+      }),
+
+    myBilling: () => op(() => mockBilling()),
+    billingSync: () =>
+      op(() => {
+        // Same answer as a server without REVENUECAT_API_KEY.
+        throw new ApiError(501, 'store_sync_unavailable', null);
+      }),
+    claimFreePass: () =>
+      op(() => {
+        if (!entitlements().passport.freePassAvailable) throw new ApiError(403, 'free_pass_unavailable', null);
+        db.freePassUsedAt = now().toISOString();
+        db.passExpiresAt = new Date(now().getTime() + 7 * DAY).toISOString();
+        db.feedOrder = null;
+        return { ok: true as const, billing: mockBilling(), entitlements: entitlements() };
       }),
 
     devGrant: (body) =>
@@ -1631,6 +1722,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
           g.accepted = true;
           g.acceptedAt = now().toISOString();
           if (g.status === 'invited') g.status = 'active';
+          notifMock.add('guardian_accepted', { guardianshipId: g.id, guardianName: g.name, relationship: g.relationship });
           seedOpinionsFrom(g);
           return publicGuardian(g);
         }),
@@ -1647,6 +1739,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
           db.stageApprovals = db.stageApprovals.filter((a) => !(a.guardianId === g.id && a.matchId === matchId && a.stage === stage));
           db.stageApprovals.push({ guardianId: g.id, matchId, stage, decision: 'approve', at: now().toISOString() });
           evaluateGate(m);
+          notifMock.add('guardian_stage_decision', { guardianshipId: g.id, guardianName: g.name, relationship: g.relationship, matchId, stage, decision: 'approve' });
         }),
 
       guardianDashboardFor: (guardianId) =>
@@ -1681,6 +1774,7 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
         }),
       reset: async () => {
         await ready;
+        await adminMock.reset();
         db = freshDb();
         if (storage) await storage.removeItem(STORAGE_KEY);
       },

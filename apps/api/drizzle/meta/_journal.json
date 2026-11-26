@@ -22,6 +22,13 @@
       "when": 1795644585325,
       "tag": "0002_guardian_approvals_shares",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795666119120,
+      "tag": "0003_photos_privacy_notifications_moderation_billing",
+      "breakpoints": true
     }
   ]
 }

@@ -3,10 +3,13 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 import { useMe, usePutPreferences } from '@/api/hooks';
 import { Stepper } from '@/components/me/Stepper';
 import { defaultPreferences } from '@/components/onboarding/draft';
 import { InlineNote } from '@/components/onboarding/OnboardingFrame';
+import { privacyKeys, useMyPreferences } from '@/components/privacy/usePrivacy';
 import { IMPORTANCE_ORDER } from '@/components/questions/QuestionEditor';
 import {
   Button,
@@ -35,27 +38,31 @@ const AGE_MIN = 18;
 const AGE_MAX = 80;
 
 /**
- * Match preferences (screen 28, saved with PUT /me/preferences). The contract has no GET, so the
- * last saved value is cached in the session store and used to prefill this screen.
+ * Match preferences (screen 28): loaded with GET /me/preferences (saved values or the server defaults) and
+ * saved with PUT /me/preferences. The session cache is only a fallback if the read fails.
  */
 export default function PreferencesScreen() {
   const t = useT();
   const me = useMe();
+  const saved = useMyPreferences();
   const cached = useSession((s) => s.preferences);
 
   const header = <Header title={t('me.prefs.title')} />;
-  if (me.isLoading) return <Screen header={header}><LoadingState /></Screen>;
+  if (me.isLoading || saved.isLoading) return <Screen header={header}><LoadingState /></Screen>;
   if (me.isError || !me.data) return <Screen header={header}><ErrorState onRetry={() => void me.refetch()} /></Screen>;
 
   const p = me.data.profile;
-  const initial = cached ?? defaultPreferences(p?.gender ?? 'male', p?.age ?? 28);
-  return <PreferencesForm initial={initial} isDefault={!cached} advanced={me.data.entitlements.limits.advancedFilters} />;
+  const fromServer = saved.data;
+  const initial = fromServer?.preferences ?? cached ?? defaultPreferences(p?.gender ?? 'male', p?.age ?? 28);
+  const isDefault = fromServer ? !fromServer.saved : !cached;
+  return <PreferencesForm initial={initial} isDefault={isDefault} advanced={me.data.entitlements.limits.advancedFilters} />;
 }
 
 function PreferencesForm({ initial, isDefault, advanced }: { initial: MatchPreferencesInput; isDefault: boolean; advanced: boolean }) {
   const t = useT();
   const locale = useLocale();
   const put = usePutPreferences();
+  const qc = useQueryClient();
   const [prefs, setPrefs] = useState<MatchPreferencesInput>(initial);
 
   const set = <K extends keyof MatchPreferencesInput>(k: K, v: MatchPreferencesInput[K]) => setPrefs((p) => ({ ...p, [k]: v }));
@@ -86,6 +93,7 @@ function PreferencesForm({ initial, isDefault, advanced }: { initial: MatchPrefe
   const submit = () =>
     put.mutate(prefs, {
       onSuccess: () => {
+        qc.setQueryData(privacyKeys.preferences, { saved: true, preferences: prefs });
         useUi.getState().showToast({ message: t('me.prefs.saved'), tone: 'success', durationMs: 2200 });
         if (router.canGoBack()) router.back();
       },

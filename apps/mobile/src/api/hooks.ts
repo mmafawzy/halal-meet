@@ -36,6 +36,7 @@ import { useSession } from '../state/session';
 import { useUi } from '../state/ui';
 import { api } from './index';
 import { ApiError, isLimitReached, LimitReachedError, type ProfileUpdateBody } from './types';
+import { chatPollInterval } from '../components/notifications/realtime';
 
 export const qk = {
   me: ['me'] as const,
@@ -97,7 +98,7 @@ export function useMessages(matchId: string | undefined) {
     queryKey: qk.messages(matchId ?? ''),
     queryFn: () => api.messages(matchId!),
     enabled: !!matchId,
-    refetchInterval: 2000, // no websocket in the contract yet — poll while the chat is open
+    refetchInterval: chatPollInterval, // 2 s, or a slow safety net while the realtime stream (GET /events) is open
   });
 }
 
@@ -307,6 +308,12 @@ export function useDevGrant() {
       void qc.invalidateQueries();
     },
   });
+}
+
+/** GET /me/billing — current subscriptions, renewal dates, store and management link (BILLING_ROUTES). */
+export function useMyBilling(enabled = true) {
+  const token = useSession((s) => s.token);
+  return useQuery({ queryKey: ['billing'] as const, queryFn: () => api.myBilling(), enabled: enabled && !!token, staleTime: 15_000 });
 }
 
 export function useVerifyIdentityDemo() {

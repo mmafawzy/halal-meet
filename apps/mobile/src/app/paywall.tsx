@@ -1,4 +1,4 @@
-import { SKU_PRICES_USD, type PlanTier, type Sku } from '@halal-meet/core';
+import { type PlanTier, type Sku } from '@halal-meet/core';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -8,10 +8,11 @@ import { isSubscription, renewalDateFor, tierForSku, trialRenewsAt, useBilling }
 import { PassportOfferList, passportOffers, type PassportSku } from '@/components/passport/PassportOffers';
 import { CompareTable } from '@/components/paywall/CompareTable';
 import { PlanCard } from '@/components/paywall/PlanCard';
+import { SubscriptionStatus } from '@/components/paywall/SubscriptionStatus';
 import { CancellationBlock, HonestyBlock, SafetyPromise, StoriesBlock, useStoreName } from '@/components/paywall/Promises';
 import { Button, Card, Header, Icon, LoadingState, Screen, SectionTitle, Text } from '@/components/ui';
 import { useLocale, useT } from '@/i18n';
-import { formatDate, formatPrice } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { useUi } from '@/state/ui';
 import { colors, palette, spacing } from '@/theme';
 
@@ -102,7 +103,9 @@ export default function PaywallScreen() {
   const plans = (['plus', 'gold'] as const).filter((p) => tier !== 'elite' && RANK[p] >= RANK[tier]);
   const showTrial = trigger === 'interests' && tier === 'free' && selected === 'plus_monthly';
   const freePass = !!ent?.freePassAvailable;
-  const price = selected ? formatPrice(SKU_PRICES_USD[selected], locale) : '';
+  const price = selected ? billing.priceOf(selected) : '';
+
+  const unavailableCopy = billing.unavailableReason === 'web' ? t('paywall.billing.unavailableWeb') : t('paywall.billing.unavailableConfig');
 
   const ctaLabel = (() => {
     if (!selected) return t('paywall.choose');
@@ -117,14 +120,22 @@ export default function PaywallScreen() {
     if (res.status === 'granted') {
       showToast({ message: t('paywall.purchase.done'), tone: 'success', durationMs: 2800 });
       close();
-    } else if (res.status !== 'cancelled') {
+    } else if (res.status === 'pending') {
+      showToast({ message: t('paywall.billing.pending'), tone: 'neutral', durationMs: 4000 });
+    } else if (res.status === 'unavailable') {
+      showToast({ message: unavailableCopy, tone: 'neutral' });
+    } else if (res.status === 'error') {
       showToast({ message: t('paywall.purchase.failed'), tone: 'danger' });
     }
+    // 'cancelled' is a normal choice: nothing to say.
   };
 
   const restore = async () => {
     const res = await billing.restore();
-    showToast({ message: res.changed ? t('paywall.restore.done') : t('paywall.restore.none'), tone: 'neutral' });
+    if (res.status === 'cancelled') return;
+    if (res.status === 'unavailable') showToast({ message: unavailableCopy, tone: 'neutral' });
+    else if (res.status === 'error') showToast({ message: t('paywall.billing.restoreFailed'), tone: 'danger' });
+    else showToast({ message: res.changed ? t('paywall.restore.done') : t('paywall.restore.none'), tone: 'neutral' });
   };
 
   const incomingCount = incoming.data?.count ?? 0;
@@ -139,6 +150,11 @@ export default function PaywallScreen() {
       testID="paywall"
       footer={
         <View style={{ gap: spacing.xs }}>
+          {!billing.available ? (
+            <Text variant="small" color={colors.textMuted} style={{ textAlign: 'center' }} testID="paywall-unavailable">
+              {unavailableCopy}
+            </Text>
+          ) : null}
           <Button
             label={ctaLabel}
             size="lg"
@@ -169,6 +185,9 @@ export default function PaywallScreen() {
         </Text>
       </View>
 
+      {/* What the member already has: renewal date, store, billing issues, manage link */}
+      <SubscriptionStatus />
+
       {/* Passport-only options (pass / add-on) when Passport is what they wanted */}
       {passportChoices.length > 0 ? (
         <View style={{ gap: spacing.sm }}>
@@ -178,6 +197,7 @@ export default function PaywallScreen() {
             selected={selected === 'passport_pass_7d' || selected === 'passport_addon_monthly' ? selected : null}
             onSelect={select}
             freePassAvailable={freePass}
+            priceOf={billing.priceOf}
           />
           <Text variant="caption" color={colors.textMuted}>
             {t('passport.afterExpiry')}
@@ -206,6 +226,7 @@ export default function PaywallScreen() {
               current={tier === p}
               selected={selected === sku}
               recommended={defaultSku(trigger, tier, []) === sku}
+              displayPrice={billing.priceOf(sku)}
               onPress={() => select(sku)}
             />
           );
@@ -226,7 +247,7 @@ export default function PaywallScreen() {
             {t('paywall.trial.renewsOn', { date: formatDate(trialRenewsAt().toISOString(), locale, { day: 'numeric', month: 'long', year: 'numeric' }) })}
           </Text>
           <Text variant="small" color={colors.textMuted}>
-            {t('paywall.trial.afterTrial', { price: formatPrice(SKU_PRICES_USD.plus_monthly, locale) })}
+            {t('paywall.trial.afterTrial', { price: billing.priceOf('plus_monthly') })}
           </Text>
           <Text variant="small" color={colors.textMuted}>
             {t('paywall.trial.noCharge', { date: formatDate(trialRenewsAt().toISOString(), locale, { day: 'numeric', month: 'long' }) })}
@@ -269,8 +290,8 @@ export default function PaywallScreen() {
       <StoriesBlock />
 
       <View style={{ gap: spacing.xs, marginBottom: spacing.lg }}>
-        <Text variant="caption" color={colors.textSubtle}>
-          {t('paywall.priceNote')}
+        <Text variant="caption" color={colors.textSubtle} testID="paywall-price-note">
+          {billing.storePricing ? t('paywall.billing.priceFromStore', { store }) : `${t('paywall.priceNote')} ${t('paywall.billing.priceAtCheckout')}`}
         </Text>
         <Text variant="caption" color={colors.textSubtle}>
           {t('paywall.price.store', { store })} · {t('paywall.price.taxes')}

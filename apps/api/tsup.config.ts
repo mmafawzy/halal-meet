@@ -7,5 +7,7 @@ export default defineConfig({
   platform: 'node',
   sourcemap: true,
   clean: true,
+  // Bundle the workspace core package from source (resolved through tsconfig paths).
+  noExternal: ['@halal-meet/core'],
   // Nest relies on legacy decorators; esbuild reads `experimentalDecorators` from tsconfig.
 });

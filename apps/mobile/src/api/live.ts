@@ -1,10 +1,18 @@
-import { GUARDIAN_ROUTES, ROUTES, type Usage } from '@halal-meet/core';
+import { GUARDIAN_ROUTES, MODERATION_ROUTES, ROUTES, type Usage } from '@halal-meet/core';
+import { BILLING_ROUTES } from '@halal-meet/core';
+import { PRIVACY_ROUTES } from '@halal-meet/core';
+import { PHOTO_ROUTES } from '@halal-meet/core';
+import { NOTIFICATION_ROUTES } from '@halal-meet/core';
 
+import { createLiveAdminApi } from './admin';
+import { createLivePrivacyApi } from './privacy';
+import { createLiveNotificationsApi } from './notifications';
+import { createLivePhotoApi } from './photos';
 import { ApiError, LimitReachedError, type HalalMeetApi } from './types';
 
-type RouteKey = keyof typeof ROUTES | keyof typeof GUARDIAN_ROUTES;
+type RouteKey = keyof typeof ROUTES | keyof typeof GUARDIAN_ROUTES | keyof typeof MODERATION_ROUTES | keyof typeof BILLING_ROUTES | keyof typeof PRIVACY_ROUTES | keyof typeof PHOTO_ROUTES | keyof typeof NOTIFICATION_ROUTES;
 
-const ALL_ROUTES: Record<RouteKey, string> = { ...ROUTES, ...GUARDIAN_ROUTES };
+const ALL_ROUTES: Record<RouteKey, string> = { ...ROUTES, ...GUARDIAN_ROUTES, ...MODERATION_ROUTES, ...BILLING_ROUTES, ...PRIVACY_ROUTES, ...PHOTO_ROUTES, ...NOTIFICATION_ROUTES };
 
 /**
  * Turns a ROUTES / GUARDIAN_ROUTES entry (`'GET /matches/:matchId/messages?before='`) into method +
@@ -55,6 +63,8 @@ export function createLiveApi({ baseUrl, getToken, onUnauthorized }: LiveApiOpti
       body?: unknown;
       /** Public routes (invitation preview) are sent without the bearer token. */
       anonymous?: boolean;
+      /** multipart/form-data body (photo upload); fetch sets the boundary header. */
+      form?: FormData;
     } = {},
   ): Promise<T> {
     const { method, path } = buildRequest(route, opts.params, opts.query);
@@ -66,7 +76,7 @@ export function createLiveApi({ baseUrl, getToken, onUnauthorized }: LiveApiOpti
     const res = await fetch(`${base}${path}`, {
       method,
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
     });
     const text = await res.text();
     let data: unknown = null;
@@ -88,6 +98,10 @@ export function createLiveApi({ baseUrl, getToken, onUnauthorized }: LiveApiOpti
 
   return {
     mode: 'live',
+    ...createLivePhotoApi(call),
+    admin: createLiveAdminApi(call),
+    privacy: createLivePrivacyApi(call),
+    notifications: createLiveNotificationsApi(call, { baseUrl: base, getToken }),
     otpRequest: async (body) => {
       await call('otpRequest', { body });
     },
@@ -139,6 +153,9 @@ export function createLiveApi({ baseUrl, getToken, onUnauthorized }: LiveApiOpti
     devGrant: async (body) => {
       await call('devGrant', { body });
     },
+    myBilling: () => call('myBilling'),
+    billingSync: () => call('billingSync'),
+    claimFreePass: () => call('claimFreePass'),
     report: async (body) => {
       await call('report', { body });
     },

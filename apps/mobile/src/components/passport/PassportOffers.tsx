@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { useMe } from '@/api/hooks';
 import { useBilling } from '@/billing';
+import { useStoreName } from '@/components/paywall/Promises';
 import { Button, Icon, Sheet, Text, type IconName } from '@/components/ui';
 import { useLocale, useT } from '@/i18n';
 import { formatPrice } from '@/lib/format';
@@ -36,17 +37,20 @@ export function PassportOfferList({
   selected,
   onSelect,
   freePassAvailable,
+  priceOf,
 }: {
   offers: PassportSku[];
   selected: PassportSku | null;
   onSelect: (sku: PassportSku) => void;
   freePassAvailable: boolean;
+  /** Localised store price when known (defaults to the US reference price). */
+  priceOf?: (sku: PassportSku) => string;
 }) {
   const t = useT();
   const locale = useLocale();
 
   const copy = (sku: PassportSku) => {
-    const price = formatPrice(SKU_PRICES_USD[sku], locale);
+    const price = priceOf ? priceOf(sku) : formatPrice(SKU_PRICES_USD[sku], locale);
     switch (sku) {
       case 'passport_pass_7d':
         return freePassAvailable
@@ -132,6 +136,7 @@ export function PassportPurchaseSheet({
   const me = useMe();
   const billing = useBilling();
   const showToast = useUi((s) => s.showToast);
+  const storeName = useStoreName();
 
   const tier = me.data?.entitlements.tier ?? 'free';
   const ent = me.data?.entitlements.passport;
@@ -146,10 +151,12 @@ export function PassportPurchaseSheet({
 
   const ctaLabel = (() => {
     if (!selected) return t('common.actions.continue');
-    const price = formatPrice(SKU_PRICES_USD[selected], locale);
+    const price = billing.priceOf(selected);
     if (selected === 'passport_pass_7d') return freePass ? t('passport.purchase.claimFree') : t('passport.purchase.buy', { price });
     return t('passport.purchase.buyMonthly', { price });
   })();
+
+  const unavailableCopy = billing.unavailableReason === 'web' ? t('paywall.billing.unavailableWeb') : t('paywall.billing.unavailableConfig');
 
   const buy = async () => {
     if (!selected) return;
@@ -158,9 +165,14 @@ export function PassportPurchaseSheet({
       showToast({ message: t('passport.purchase.done'), tone: 'success' });
       onClose();
       onPurchased?.(selected);
-    } else if (res.status !== 'cancelled') {
+    } else if (res.status === 'pending') {
+      showToast({ message: t('paywall.billing.pending'), tone: 'neutral', durationMs: 4000 });
+    } else if (res.status === 'unavailable') {
+      showToast({ message: unavailableCopy, tone: 'neutral' });
+    } else if (res.status === 'error') {
       showToast({ message: t('passport.purchase.failed'), tone: 'danger' });
     }
+    // 'cancelled': the member changed their mind — nothing to say.
   };
 
   return (
@@ -210,14 +222,19 @@ export function PassportPurchaseSheet({
         </View>
       ) : null}
 
-      <PassportOfferList offers={offers} selected={selected} onSelect={setSelected} freePassAvailable={freePass} />
+      <PassportOfferList offers={offers} selected={selected} onSelect={setSelected} freePassAvailable={freePass} priceOf={billing.priceOf} />
 
       <Text variant="caption" color={colors.textMuted}>
         {t('passport.afterExpiry')}
       </Text>
       <Text variant="caption" color={colors.textSubtle}>
-        {t('paywall.priceNote')}
+        {billing.storePricing ? t('paywall.billing.priceFromStore', { store: storeName }) : `${t('paywall.priceNote')} ${t('paywall.billing.priceAtCheckout')}`}
       </Text>
+      {!billing.available ? (
+        <Text variant="small" color={colors.textMuted} testID="passport-purchase-unavailable">
+          {unavailableCopy}
+        </Text>
+      ) : null}
       {billing.simulated ? (
         <Text variant="caption" color={colors.textSubtle}>
           {t('passport.purchase.simulated')}

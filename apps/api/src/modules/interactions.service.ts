@@ -29,10 +29,12 @@ import { MembersService } from './members';
 import { UsageService } from './usage';
 import { FeedService } from './feed.service';
 import { toProfileCard } from './compat';
+import { goneIds, visibleIds } from './visibility';
 import { activeGuardiansOf, approvalState, pendingFor, toPresence } from './guardian-gate';
 import { detectRisk, type RiskWarning } from './risk';
 import { DAY_MS } from '../common/time';
 import { uuidv7 } from '../common/ids';
+import { NotificationsService } from './notifications.service';
 
 /** Message kind is free-form in the contract; system templates are stored as keys the client renders. */
 export const SYSTEM_TEMPLATE = { respectfulClose: 'respectful_close' } as const;
@@ -46,6 +48,7 @@ export class InteractionsService {
     @Inject(UsageService) private readonly usage: UsageService,
     @Inject(FeedService) private readonly feed: FeedService,
     @Inject(CountriesService) private readonly countries: CountriesService,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
   ) {}
 
   // ───────── Interests ─────────
@@ -56,6 +59,8 @@ export class InteractionsService {
     if (!viewer) throw new BadRequestException({ error: 'profile_required' });
     const target = await this.members.get(body.toId);
     if (!target) throw new NotFoundException({ error: 'not_found' });
+    // Hidden accounts (paused, incognito, deletion pending, suspended, banned) can't receive interests.
+    if (!(await visibleIds(this.db, viewerId, [body.toId])).has(body.toId)) throw new NotFoundException({ error: 'not_found' });
 
     const usage = await this.usage.assertCanSendInterest(viewerId, viewer.row.country, body.level);
 
@@ -100,6 +105,8 @@ export class InteractionsService {
         .set({ status: 'matched' })
         .where(and(inArray(t.interests.id, [id, reciprocal[0].id])));
     }
+    if (matched) await Promise.all([this.notifications.notify(body.toId, 'match', { matchId, otherId: viewerId }), this.notifications.notify(viewerId, 'match', { matchId, otherId: body.toId, initiatedByYou: true })]);
+    else await this.notifications.notify(body.toId, body.level === 'serious' ? 'serious_interest' : 'interest', { interestId: id, fromId: viewerId, level: body.level });
     this.feed.noteAction(viewerId);
     this.feed.noteAction(body.toId);
 
@@ -146,12 +153,13 @@ export class InteractionsService {
       .orderBy(desc(t.interests.createdAt));
 
     const members = await this.members.getMany(rows.map((r) => r.fromId), now);
+    const visibleSenders = await visibleIds(this.db, viewerId, rows.map((r) => r.fromId), now);
     const { countryStatus } = await this.countries.resolver();
     const ctx: EligibilityContext = { now, countryStatus };
     const scored = rows
       .map((r) => {
         const m = members.get(r.fromId);
-        if (!m) return null;
+        if (!m || !visibleSenders.has(m.id)) return null;
         if (!checkEligibility(viewer.match, m.match, ctx).ok) return null;
         return { row: r, member: m, compat: computeCompatibility(viewer.match, m.match) };
       })
@@ -184,6 +192,8 @@ export class InteractionsService {
 
     const otherIds = rows.map((r) => (r.aId === viewerId ? r.bId : r.aId));
     const members = await this.members.getMany(otherIds, now);
+    // Deleted / banned / deletion-pending accounts disappear from conversations too (paused ones stay).
+    const gone = await goneIds(this.db, otherIds);
     const matchIds = rows.map((r) => r.id);
 
     const [lastMessages, coverage, myLast] = await Promise.all([
@@ -218,7 +228,7 @@ export class InteractionsService {
     const out: MatchSummary[] = [];
     for (const r of rows) {
       const other = members.get(r.aId === viewerId ? r.bId : r.aId);
-      if (!other) continue;
+      if (!other || gone.has(other.id)) continue;
       const topics = coverageByMatch.get(r.id)?.size ?? 0;
       const last = lastByMatch.get(r.id) ?? null;
       const { stage, pending } = await this.journeyOf(r, topics, viewerId);
@@ -322,6 +332,7 @@ export class InteractionsService {
       .values({ id, matchId, senderId: viewerId, kind: body.kind, body: text, topicKey, risk, sentAt: new Date() })
       .returning();
     await this.db.update(t.matches).set({ updatedAt: new Date() }).where(eq(t.matches.id, matchId));
+    await this.notifications.notify(otherId, 'message', { matchId, messageId: id, senderId: viewerId });
     void otherId;
     return this.toMessage(row!, null);
   }
@@ -488,6 +499,11 @@ export class InteractionsService {
       .from(t.matches)
       .where(or(and(eq(t.matches.aId, viewerId), eq(t.matches.bId, id)), and(eq(t.matches.aId, id), eq(t.matches.bId, viewerId))));
     const isMatch = matched.length > 0;
+    // Matches keep seeing each other (even paused or incognito) unless the account is gone; everyone else
+    // only sees visible accounts. Hidden accounts answer 404, so their existence isn't revealed.
+    if (isMatch ? (await goneIds(this.db, [id])).has(id) : !(await visibleIds(this.db, viewerId, [id], now)).has(id)) {
+      throw new NotFoundException({ error: 'not_found' });
+    }
     if (!isMatch) {
       const { countryStatus } = await this.countries.resolver();
       const ctx: EligibilityContext = { now, countryStatus };

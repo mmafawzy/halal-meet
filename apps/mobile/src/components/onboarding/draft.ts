@@ -145,9 +145,8 @@ export function draftStrength(d: OnboardingDraft): number {
 }
 
 /**
- * Consent to process religious information (phone step). The draft has no field for it and the API
- * has no consent route yet, so it lives in memory for this session only.
- * TODO: persist server-side once the consent endpoint exists (spec 05).
+ * Consent to process religious information (phone step). Kept in memory until sign-in, then recorded with
+ * PUT /me/consents/religious_data (see recordSignupConsents in components/privacy/consents.ts).
  */
 let religiousConsent: boolean | null = null;
 export const getReligiousConsent = () => religiousConsent;

@@ -14,6 +14,7 @@ export function PlanCard({
   onPress,
   recommended,
   current,
+  displayPrice,
 }: {
   tier: 'plus' | 'gold';
   sku: Extract<Sku, 'plus_monthly' | 'gold_monthly'>;
@@ -21,11 +22,13 @@ export function PlanCard({
   onPress: () => void;
   recommended?: boolean;
   current?: boolean;
+  /** Localised store price when known (falls back to the US reference price). */
+  displayPrice?: string;
 }) {
   const t = useT();
   const locale = useLocale();
   const gold = tier === 'gold';
-  const price = t('paywall.price.perMonth', { price: formatPrice(SKU_PRICES_USD[sku], locale) });
+  const price = t('paywall.price.perMonth', { price: displayPrice ?? formatPrice(SKU_PRICES_USD[sku], locale) });
 
   return (
     <Pressable

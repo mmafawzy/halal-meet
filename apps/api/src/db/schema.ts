@@ -32,6 +32,13 @@ export const accounts = pgTable('accounts', {
   role: text('role').notNull().default('member'),
   lastActiveAt: ts('last_active_at'),
   lastFeedVisitAt: ts('last_feed_visit_at'),
+  // Privacy centre (spec 05): pause hides you from Discover; incognito shows you only to people you liked.
+  pausedUntil: ts('paused_until'),
+  incognito: boolean('incognito').notNull().default(false),
+  /** Set when deletion is requested; the account is erased after the grace period unless cancelled. */
+  deletionRequestedAt: ts('deletion_requested_at'),
+  /** Moderation: suspended until this time (status 'banned' = permanent). */
+  suspendedUntil: ts('suspended_until'),
   createdAt: createdAt(),
 });
 
@@ -291,7 +298,9 @@ export const reports = pgTable('reports', {
   category: text('category').notNull(),
   details: text('details'),
   evidenceMessageIds: uuid('evidence_message_ids').array(),
-  status: text('status').notNull().default('open'),
+  status: text('status').notNull().default('open'), // open/actioned/dismissed
+  resolvedAt: ts('resolved_at'),
+  resolvedBy: uuid('resolved_by'),
   createdAt: createdAt(),
 });
 
@@ -438,4 +447,137 @@ export const usageEvents = pgTable(
 export const countryStatusOverrides = pgTable('country_status_overrides', {
   code: text('code').primaryKey(),
   status: text('status').notNull(), // growing/open
+});
+
+// ───────── Photos & photo privacy (spec 01 §9, §41) ─────────
+export const photos = pgTable(
+  'photos',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    /** Opaque key for the storage driver (local disk in dev, object storage in prod). */
+    storageKey: text('storage_key').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    position: smallint('position').notNull().default(0), // 0 = main photo
+    status: text('status').notNull().default('pending'), // pending/approved/rejected (moderation)
+    createdAt: createdAt(),
+  },
+  (t) => [index('photos_account_idx').on(t.accountId, t.position)],
+);
+
+export const photoAccessRequests = pgTable(
+  'photo_access_requests',
+  {
+    id: uuid('id').primaryKey(),
+    requesterId: uuid('requester_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('pending'), // pending/approved/declined
+    createdAt: createdAt(),
+    decidedAt: ts('decided_at'),
+  },
+  (t) => [uniqueIndex('photo_access_pair_uq').on(t.requesterId, t.ownerId), index('photo_access_owner_idx').on(t.ownerId, t.status)],
+);
+
+// ───────── Privacy centre & consents (spec 05) ─────────
+export const consents = pgTable(
+  'consents',
+  {
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(), // terms/privacy/religious_data/marketing/guardian_access/ai_processing
+    granted: boolean('granted').notNull(),
+    version: text('version').notNull().default('1'),
+    decidedAt: ts('decided_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.accountId, t.kind] })],
+);
+
+// ───────── Notifications (spec 02 §5) ─────────
+export const devices = pgTable(
+  'devices',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    platform: text('platform').notNull(), // ios/android/web
+    pushToken: text('push_token').notNull(),
+    createdAt: createdAt(),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('devices_token_uq').on(t.pushToken), index('devices_account_idx').on(t.accountId)],
+);
+
+export const notificationPrefs = pgTable('notification_prefs', {
+  accountId: uuid('account_id')
+    .primaryKey()
+    .references(() => accounts.id, { onDelete: 'cascade' }),
+  /** Per-category switches, e.g. { matches, messages, interests, family, topPicks, tips } → boolean. */
+  categories: jsonb('categories').$type<Record<string, boolean>>().notNull(),
+  /** maghrib | morning | evening | HH:MM (local time). */
+  topPicksTime: text('top_picks_time').notNull().default('maghrib'),
+  /** No pushes overnight (23:00–07:00 local). */
+  quietHours: boolean('quiet_hours').notNull().default(true),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(), // match/message/interest/serious_interest/guardian_*/photo_request/top_picks/moderation
+    /** Ids and template params only; clients render localised copy from `kind`. */
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    readAt: ts('read_at'),
+    pushStatus: text('push_status').notNull().default('pending'), // pending/sent/skipped/failed
+    pushedAt: ts('pushed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('notifications_account_idx').on(t.accountId, t.createdAt)],
+);
+
+// ───────── Moderation (spec 05) ─────────
+export const moderationActions = pgTable(
+  'moderation_actions',
+  {
+    id: uuid('id').primaryKey(),
+    moderatorId: uuid('moderator_id')
+      .notNull()
+      .references(() => accounts.id),
+    subjectId: uuid('subject_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    reportId: uuid('report_id').references(() => reports.id, { onDelete: 'set null' }),
+    /** dismiss/warn/hide_message/reject_photo/suspend/ban/reinstate */
+    action: text('action').notNull(),
+    reason: text('reason'),
+    /** Extra details, e.g. messageId, photoId or days. */
+    meta: jsonb('meta').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('moderation_actions_subject_idx').on(t.subjectId, t.createdAt)],
+);
+
+// ───────── Store billing (RevenueCat webhooks; spec 02) ─────────
+export const billingEvents = pgTable('billing_events', {
+  /** The RevenueCat/store event id — makes webhook delivery idempotent. */
+  id: text('id').primaryKey(),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'set null' }),
+  store: text('store').notNull(), // app_store/play_store/stripe/promotional
+  type: text('type').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  receivedAt: ts('received_at').notNull().defaultNow(),
 });

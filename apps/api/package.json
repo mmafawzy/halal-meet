@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "seed": "tsx src/seed/seed.ts",
+    "purge:deletions": "tsx src/scripts/purge-deletions.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

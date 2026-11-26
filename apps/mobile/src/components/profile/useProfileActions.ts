@@ -2,6 +2,7 @@ import { PLAN_LIMITS, type ProfileCard } from '@halal-meet/core';
 import { router } from 'expo-router';
 
 import { useGuardians, useMe, useShareWithGuardians } from '@/api/hooks';
+import { useGuardianShares } from '@/components/privacy/usePrivacy';
 import { useT } from '@/i18n';
 import { useLocal } from '@/state/local';
 import { useUi } from '@/state/ui';
@@ -9,8 +10,7 @@ import { useUi } from '@/state/ui';
 /**
  * Profile actions: "Save for later" (device-only, no API route yet) and "Share with my guardian"
  * (POST /guardians/shares → the profile appears on every guardian's dashboard for an opinion;
- * DELETE /guardians/shares/:subjectId to stop). The contract has no GET for shares, so the ids shared from
- * this device are remembered locally to offer "Stop sharing". Without a guardian, the user is pointed to
+ * DELETE /guardians/shares/:subjectId to stop). "Stop sharing" is offered for every id in GET /guardians/shares. Without a guardian, the user is pointed to
  * the Family tab instead.
  */
 export function useProfileActions() {
@@ -19,7 +19,10 @@ export function useProfileActions() {
   const saved = useLocal((s) => s.saved);
   const save = useLocal((s) => s.save);
   const unsave = useLocal((s) => s.unsave);
-  const sharedIds = useLocal((s) => s.sharedWithGuardians);
+  const localSharedIds = useLocal((s) => s.sharedWithGuardians);
+  // GET /guardians/shares works across devices; the device list is only a fallback while it loads or fails.
+  const remoteShares = useGuardianShares().data;
+  const sharedIds = remoteShares ? remoteShares.map((x) => x.subjectId) : localSharedIds;
   const guardians = useGuardians().data ?? [];
   const share = useShareWithGuardians();
   const showToast = useUi((s) => s.showToast);

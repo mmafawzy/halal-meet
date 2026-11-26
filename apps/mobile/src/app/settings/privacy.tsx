@@ -3,10 +3,16 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
-import { isPaused, useMeLocal } from '@/components/me/meStore';
 import { useSaveProfile } from '@/components/me/useSaveProfile';
 import { PHOTO_VISIBILITIES, PHOTO_VISIBILITY_ICONS } from '@/components/onboarding/draft';
 import { InlineNote } from '@/components/onboarding/OnboardingFrame';
+import { PhotoRequestsSection } from '@/components/photos/PhotoRequestsSection';
+import { AccountStateCard } from '@/components/privacy/AccountStateCard';
+import { ConsentsSection } from '@/components/privacy/ConsentsSection';
+import { DeleteAccountSheet } from '@/components/privacy/DeleteAccountSheet';
+import { isApiError } from '@/components/privacy/errors';
+import { useDataExport } from '@/components/privacy/useDataExport';
+import { usePause, usePrivacyStatus, useResume, useSetIncognito } from '@/components/privacy/usePrivacy';
 import {
   Button,
   Card,
@@ -34,27 +40,80 @@ import { colors, spacing } from '@/theme';
 
 const INTL: IntlVisibility[] = ['on', 'relocating_only', 'off'];
 type PauseOption = 'week' | 'month' | 'manual';
-type Soon = 'export' | 'conversations' | 'delete';
 
-/** Privacy center (screen 58). Never paywalled, except Incognito (Plus). */
+/**
+ * Privacy center (screen 58, spec 05). Never paywalled, except Incognito (Plus and above).
+ * Pause, incognito, consents, data export and deletion are stored on the server (PRIVACY_ROUTES).
+ */
 export default function PrivacyScreen() {
   const t = useT();
   const locale = useLocale();
   const { me, profile, save } = useSaveProfile();
-  const incognito = useMeLocal((s) => s.incognito);
-  const setIncognito = useMeLocal((s) => s.setIncognito);
-  const pausedUntil = useMeLocal((s) => s.pausedUntil);
-  const pause = useMeLocal((s) => s.pause);
-  const resume = useMeLocal((s) => s.resume);
+  const status = usePrivacyStatus();
+  const pause = usePause();
+  const resume = useResume();
+  const incognito = useSetIncognito();
+  const exportData = useDataExport();
 
   const [photo, setPhoto] = useState<PhotoVisibility | null>(null);
   const [intl, setIntl] = useState<IntlVisibility | null>(null);
   const [pauseChoice, setPauseChoice] = useState<PauseOption>('week');
-  const [soon, setSoon] = useState<Soon | null>(null);
+  const [conversationsSoon, setConversationsSoon] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const header = <Header title={t('me.privacy.title')} />;
-  if (me.isLoading) return <Screen header={header}><LoadingState /></Screen>;
-  if (me.isError) return <Screen header={header}><ErrorState onRetry={() => void me.refetch()} /></Screen>;
+  if (me.isLoading || status.isLoading) return <Screen header={header}><LoadingState /></Screen>;
+  if (me.isError || status.isError || !status.data) {
+    return (
+      <Screen header={header}>
+        <ErrorState onRetry={() => void Promise.all([me.refetch(), status.refetch()])} />
+      </Screen>
+    );
+  }
+  const s = status.data;
+  const restricted = s.state === 'deletion_pending' || s.state === 'suspended' || s.state === 'banned';
+
+  const dataSection = (
+    <RowGroup title={t('me.privacy.data')}>
+      <ListRow icon="download-outline" label={t('me.privacy.export')} description={t('me.privacy.exportBody')} onPress={() => exportData.mutate()} />
+      {!restricted ? (
+        <ListRow icon="chatbubbles-outline" label={t('me.privacy.deleteConversations')} right={<Tag label={t('me.privacy.comingSoon')} />} onPress={() => setConversationsSoon(true)} />
+      ) : null}
+      {s.state !== 'deletion_pending' ? (
+        <ListRow icon="trash-outline" danger label={t('me.privacy.deleteAccount')} description={t('me.privacy.deleteAccountBody')} onPress={() => setDeleteOpen(true)} />
+      ) : null}
+    </RowGroup>
+  );
+
+  const sheets = (
+    <>
+      <DeleteAccountSheet visible={deleteOpen} onClose={() => setDeleteOpen(false)} graceDays={s.graceDays} />
+      <Sheet
+        visible={conversationsSoon}
+        onClose={() => setConversationsSoon(false)}
+        title={t('me.privacy.comingSoonTitle')}
+        footer={<Button label={t('common.actions.gotIt')} fullWidth onPress={() => setConversationsSoon(false)} />}
+      >
+        <Text variant="body" color={colors.textMuted}>
+          {t('me.privacy.conversationsSoon')}
+        </Text>
+      </Sheet>
+    </>
+  );
+
+  // Suspended, closed or deletion-pending accounts only see their state, the export and deletion.
+  if (restricted) {
+    return (
+      <Screen header={header} testID="privacy-screen">
+        <View style={{ gap: spacing.xl }}>
+          <AccountStateCard status={s} />
+          {dataSection}
+        </View>
+        {sheets}
+      </Screen>
+    );
+  }
+
   if (!profile || !me.data) {
     return (
       <Screen header={header}>
@@ -63,10 +122,9 @@ export default function PrivacyScreen() {
     );
   }
 
-  const canIncognito = me.data.entitlements.limits.incognito;
   const photoValue = photo ?? profile.photoVisibility;
   const intlValue = intl ?? profile.intlVisibility ?? 'on';
-  const paused = isPaused(pausedUntil);
+  const toastError = () => useUi.getState().showToast({ message: t('common.states.error'), tone: 'danger' });
 
   const changePhoto = async (v: PhotoVisibility) => {
     setPhoto(v);
@@ -80,22 +138,30 @@ export default function PrivacyScreen() {
     if (!ok) setIntl(null);
   };
 
+  const changeIncognito = (on: boolean) =>
+    incognito.mutate(on, {
+      onSuccess: () => useUi.getState().showToast({ message: on ? t('me.privacy.incognitoOn') : t('me.privacy.incognitoOff'), tone: 'success' }),
+      onError: (e) => (isApiError(e, 'plan_required') ? router.push('/paywall') : toastError()),
+    });
+
   const doPause = () => {
-    const now = new Date();
-    if (pauseChoice === 'manual') pause('manual');
-    else {
-      now.setDate(now.getDate() + (pauseChoice === 'week' ? 7 : 30));
-      pause(now.toISOString());
+    let until: string | null = null;
+    if (pauseChoice !== 'manual') {
+      const end = new Date();
+      end.setDate(end.getDate() + (pauseChoice === 'week' ? 7 : 30));
+      until = end.toISOString();
     }
-    useUi.getState().showToast({ message: t('me.privacy.pausedToast'), tone: 'success' });
+    pause.mutate(until, {
+      onSuccess: () => useUi.getState().showToast({ message: t('me.privacy.pausedToast'), tone: 'success' }),
+      onError: toastError,
+    });
   };
 
-  const doResume = () => {
-    resume();
-    useUi.getState().showToast({ message: t('me.privacy.resumedToast'), tone: 'success' });
-  };
-
-  const soonBody = soon === 'export' ? t('me.privacy.exportSoon') : soon === 'delete' ? t('me.privacy.deleteSoon') : t('me.privacy.conversationsSoon');
+  const doResume = () =>
+    resume.mutate(undefined, {
+      onSuccess: () => useUi.getState().showToast({ message: t('me.privacy.resumedToast'), tone: 'success' }),
+      onError: toastError,
+    });
 
   return (
     <Screen header={header} testID="privacy-screen">
@@ -118,6 +184,8 @@ export default function PrivacyScreen() {
           ))}
         </View>
 
+        <PhotoRequestsSection hideWhenEmpty />
+
         <View style={{ gap: spacing.sm }}>
           <SectionTitle title={t('me.privacy.intl')} style={{ marginBottom: 0 }} />
           <Text variant="caption" color={colors.textMuted}>
@@ -131,20 +199,19 @@ export default function PrivacyScreen() {
           <InlineNote text={t(`me.privacy.intlDesc.${intlValue}`)} />
         </View>
 
-        <View style={{ gap: spacing.sm }}>
+        <View style={{ gap: spacing.sm }} testID="privacy-incognito">
           <RowGroup title={t('me.privacy.profile')}>
             <ToggleRow
               icon="eye-off-outline"
               label={t('me.privacy.incognito')}
-              description={canIncognito ? t('me.privacy.incognitoBody') : `${t('me.privacy.incognitoBody')} ${t('me.privacy.incognitoLocked')}`}
-              value={canIncognito && incognito}
-              onChange={setIncognito}
-              disabled={!canIncognito}
-              locked={!canIncognito}
+              description={s.canIncognito ? t('me.privacy.incognitoBody') : `${t('me.privacy.incognitoBody')} ${t('me.privacy.incognitoLocked')}`}
+              value={s.canIncognito && s.incognito}
+              onChange={changeIncognito}
+              disabled={!s.canIncognito || incognito.isPending}
+              locked={!s.canIncognito}
             />
-            {!canIncognito ? <ListRow icon="sparkles-outline" iconColor={colors.premium} label={t('me.prefs.unlock')} onPress={() => router.push('/paywall')} /> : null}
+            {!s.canIncognito ? <ListRow icon="sparkles-outline" iconColor={colors.premium} label={t('me.prefs.unlock')} onPress={() => router.push('/paywall')} /> : null}
           </RowGroup>
-          <InlineNote text={t('me.privacy.deviceOnly')} />
         </View>
 
         <View style={{ gap: spacing.sm }}>
@@ -153,14 +220,14 @@ export default function PrivacyScreen() {
             <Text variant="small" color={colors.textMuted}>
               {t('me.privacy.pauseBody')}
             </Text>
-            {paused ? (
+            {s.paused ? (
               <View style={{ gap: spacing.md, marginTop: spacing.md }}>
                 <Tag
                   tone="amber"
                   icon="pause-circle-outline"
-                  label={pausedUntil === 'manual' ? t('me.privacy.pausedManual') : t('me.privacy.pausedUntil', { date: formatDate(pausedUntil, locale) })}
+                  label={s.pausedUntil === null ? t('me.privacy.pausedManual') : t('me.privacy.pausedUntil', { date: formatDate(s.pausedUntil, locale) })}
                 />
-                <Button label={t('me.privacy.resume')} variant="primary" size="sm" onPress={doResume} style={{ alignSelf: 'flex-start' }} testID="privacy-resume" />
+                <Button label={t('me.privacy.resume')} variant="primary" size="sm" loading={resume.isPending} onPress={doResume} style={{ alignSelf: 'flex-start' }} testID="privacy-resume" />
               </View>
             ) : (
               <View style={{ gap: spacing.md, marginTop: spacing.md }}>
@@ -169,30 +236,26 @@ export default function PrivacyScreen() {
                     <Chip key={o} size="sm" label={t(`me.privacy.pauseOptions.${o}`)} selected={pauseChoice === o} onPress={() => setPauseChoice(o)} />
                   ))}
                 </ChipRow>
-                <Button label={t('me.privacy.pause')} variant="outline" size="sm" icon="pause-outline" onPress={doPause} style={{ alignSelf: 'flex-start' }} testID="privacy-pause-btn" />
+                <Button
+                  label={t('me.privacy.pause')}
+                  variant="outline"
+                  size="sm"
+                  icon="pause-outline"
+                  loading={pause.isPending}
+                  onPress={doPause}
+                  style={{ alignSelf: 'flex-start' }}
+                  testID="privacy-pause-btn"
+                />
               </View>
             )}
           </Card>
-          <InlineNote text={t('me.privacy.deviceOnly')} />
         </View>
 
-        <RowGroup title={t('me.privacy.data')}>
-          <ListRow icon="download-outline" label={t('me.privacy.export')} description={t('me.privacy.exportBody')} right={<Tag label={t('me.privacy.comingSoon')} />} onPress={() => setSoon('export')} />
-          <ListRow icon="chatbubbles-outline" label={t('me.privacy.deleteConversations')} right={<Tag label={t('me.privacy.comingSoon')} />} onPress={() => setSoon('conversations')} />
-          <ListRow icon="trash-outline" danger label={t('me.privacy.deleteAccount')} description={t('me.privacy.deleteAccountBody')} right={<Tag label={t('me.privacy.comingSoon')} />} onPress={() => setSoon('delete')} />
-        </RowGroup>
-      </View>
+        <ConsentsSection />
 
-      <Sheet
-        visible={soon !== null}
-        onClose={() => setSoon(null)}
-        title={t('me.privacy.comingSoonTitle')}
-        footer={<Button label={t('common.actions.gotIt')} fullWidth onPress={() => setSoon(null)} />}
-      >
-        <Text variant="body" color={colors.textMuted}>
-          {soonBody}
-        </Text>
-      </Sheet>
+        {dataSection}
+      </View>
+      {sheets}
     </Screen>
   );
 }

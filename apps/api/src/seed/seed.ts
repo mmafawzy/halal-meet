@@ -217,6 +217,8 @@ function makeProfile(opts: { country: string; gender: Gender; index: number; dem
 async function wipe(db: Db): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
+      billing_events, moderation_actions, notifications, notification_prefs, devices, consents,
+      photo_access_requests, photos,
       stage_approvals, guardian_shares, guardian_opinions, guardianships,
       topic_answers, topic_coverage, messages, stage_readiness, matches,
       interests, passes, blocks, reports, top_picks, feed_impressions,
@@ -498,6 +500,13 @@ async function main(): Promise<void> {
     await db.insert(t.passes).values({ fromId: ahmed.id, toId: egyptianWomen[6]!.id, reason: 'not_a_fit', undone: false, createdAt: new Date(NOW.getTime() - 2 * DAY_MS) }).onConflictDoNothing();
   }
 
+  // ───────── Moderation console demo: an admin account (no member profile) and one open report ─────────
+  await db.insert(t.accounts).values({ id: uuidv7(), phoneE164: '+201000000009', locale: 'en', status: 'active', role: 'admin' });
+  const reportedMan = all.find((p) => p.gender === 'male' && p.id !== ahmed.id);
+  if (egyptianWomen[7] && reportedMan) {
+    await db.insert(t.reports).values({ id: uuidv7(), reporterId: egyptianWomen[7]!.id, subjectId: reportedMan.id, category: 'fake_profile', details: 'The photos look like a celebrity.', evidenceMessageIds: [], status: 'open' });
+  }
+
   const countRows = await db.select({ n: sql<number>`count(*)` }).from(t.profiles);
   const verifiedRows = await db
     .select({ n: sql<number>`count(*)` })
@@ -507,6 +516,7 @@ async function main(): Promise<void> {
   const verified = Number(verifiedRows[0]?.n ?? 0);
   console.log(`[seed] done: ${count} profiles (${verified} identity-verified), ${destinations.length} passport destinations, match=${matchId}`);
   console.log('[seed] demo logins: +201000000001 (male, Cairo, free) and +201000000002 (female, Cairo, free), OTP code 000000');
+  console.log('[seed] moderation console: +201000000009 (admin, no member profile) → open /admin, OTP code 000000');
 
   await handle.close();
   void inArray;

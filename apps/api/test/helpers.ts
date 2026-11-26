@@ -179,6 +179,8 @@ export async function login(ctx: TestContext, phone: string): Promise<string> {
 export async function truncateAll(db: Db): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
+      billing_events, moderation_actions, notifications, notification_prefs, devices, consents,
+      photo_access_requests, photos,
       stage_approvals, guardian_shares, guardian_opinions, guardianships,
       topic_answers, topic_coverage, messages, stage_readiness, matches,
       interests, passes, blocks, reports, top_picks, feed_impressions,

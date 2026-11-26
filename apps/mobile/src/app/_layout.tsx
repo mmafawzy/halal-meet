@@ -18,6 +18,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { tokenStorage } from '@/api/tokenStorage';
 import { LimitSheet } from '@/components/global/LimitSheet';
+import { BillingBridge } from '@/billing';
+import { NotificationsBridge } from '@/components/notifications/NotificationsBridge';
 import { ToastHost } from '@/components/global/ToastHost';
 import '@/i18n';
 import { syncDirectionOnLaunch } from '@/i18n/rtl';
@@ -83,6 +85,8 @@ export default function RootLayout() {
           </Stack>
           <LimitSheet />
           <ToastHost />
+          <BillingBridge />
+          <NotificationsBridge />
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

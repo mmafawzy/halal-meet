@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { joinList, optionLabels, RELIGION_KEYS, selfValues, useSaveDraftAnswers } from '@/components/onboarding/answers';
 import { getReligiousConsent, setReligiousConsent } from '@/components/onboarding/draft';
+import { recordConsent } from '@/components/privacy/consents';
 import { InlineNote, OnboardingFrame } from '@/components/onboarding/OnboardingFrame';
 import { QuestionSheet } from '@/components/onboarding/QuestionSheet';
 import { isAnswerComplete } from '@/components/questions/QuestionEditor';
@@ -38,6 +39,7 @@ export default function ReligionScreen() {
   const turnOn = () => {
     setReligiousConsent(true);
     setConsent(true);
+    void recordConsent('religious_data', true);
   };
 
   const next = async () => {

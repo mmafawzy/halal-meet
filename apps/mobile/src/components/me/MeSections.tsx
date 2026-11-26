@@ -15,6 +15,9 @@ import { useSession } from '@/state/session';
 import { useUi } from '@/state/ui';
 import { colors, palette, spacing } from '@/theme';
 
+import { AdminEntry } from '@/components/admin/AdminEntry';
+import { useMyPreferences } from '@/components/privacy/usePrivacy';
+
 import { useAccountActions } from './accountActions';
 import { ConfirmSheet } from './ConfirmSheet';
 import { missingItems, strengthLevel } from './strength';
@@ -264,7 +267,9 @@ const IMPORTANCE_RANK = { dealbreaker: 0, must: 1, important: 2, flexible: 3 } a
 export function PreferencesSummary() {
   const t = useT();
   const locale = useLocale();
-  const prefs = useSession((s) => s.preferences);
+  const cachedPrefs = useSession((s) => s.preferences);
+  const serverPrefs = useMyPreferences().data;
+  const prefs = serverPrefs?.saved ? serverPrefs.preferences : cachedPrefs;
 
   const top = prefs
     ? (Object.entries(prefs.dimensionImportance) as Array<[Dimension, keyof typeof IMPORTANCE_RANK]>)
@@ -378,7 +383,7 @@ export function DemoTools({ me }: { me: MeResponse }) {
   const [resetting, setResetting] = useState(false);
   const identity = me.profile?.verifications.includes('identity') ?? false;
 
-  if (!api.dev) return null;
+  if (!api.dev) return <AdminEntry me={me} />; // moderators/admins in live mode
 
   const doGrant = (sku: 'plus_monthly' | 'gold_monthly' | 'passport_addon_monthly' | 'passport_pass_7d' | 'free', label: string) =>
     grant.mutate(
@@ -391,6 +396,7 @@ export function DemoTools({ me }: { me: MeResponse }) {
 
   return (
     <View style={{ gap: spacing.sm }}>
+      <AdminEntry me={me} />
       <RowGroup title={t('me.demo.title')}>
         <View style={{ padding: spacing.lg, gap: 4 }}>
           <Text variant="caption" color={colors.textMuted}>

@@ -4,8 +4,9 @@ import { Linking, StyleSheet, View } from 'react-native';
 
 import { useMe } from '@/api/hooks';
 import { emergencyNumber, EMERGENCY_NUMBERS } from '@/components/me/emergency';
-import { isPaused, useMeLocal } from '@/components/me/meStore';
 import { InlineNote } from '@/components/onboarding/OnboardingFrame';
+import { BlockedList } from '@/components/privacy/BlockedList';
+import { usePause, usePrivacyStatus } from '@/components/privacy/usePrivacy';
 import { Button, Card, Header, Icon, ListRow, RowGroup, Screen, SectionTitle, Sheet, Text, type IconName } from '@/components/ui';
 import { useLocale, useT } from '@/i18n';
 import { countryFlag, countryName } from '@/lib/format';
@@ -42,8 +43,8 @@ export default function SafetyCenterScreen() {
   const me = useMe();
   const draftCountry = useSession((s) => s.draft.country);
   const country = me.data?.profile?.country ?? draftCountry ?? null;
-  const pausedUntil = useMeLocal((s) => s.pausedUntil);
-  const pause = useMeLocal((s) => s.pause);
+  const privacy = usePrivacyStatus();
+  const pause = usePause();
   const [pressuredOpen, setPressuredOpen] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
 
@@ -51,9 +52,11 @@ export default function SafetyCenterScreen() {
   const others = COUNTRIES.filter((c) => c.code !== country && EMERGENCY_NUMBERS[c.code]);
 
   const pauseNow = () => {
-    // Local-only pause; nobody (including a guardian) is notified.
-    pause('manual');
-    useUi.getState().showToast({ message: t('me.privacy.pausedToast'), tone: 'success' });
+    // Open-ended pause (PUT /me/pause); nobody (including a guardian) is notified.
+    pause.mutate(null, {
+      onSuccess: () => useUi.getState().showToast({ message: t('me.privacy.pausedToast'), tone: 'success' }),
+      onError: () => useUi.getState().showToast({ message: t('common.states.error'), tone: 'danger' }),
+    });
   };
 
   return (
@@ -125,9 +128,7 @@ export default function SafetyCenterScreen() {
 
         <View style={{ gap: spacing.sm }}>
           <SectionTitle title={t('me.safety.blocked.title')} style={{ marginBottom: 0 }} />
-          <Card tone="muted">
-            <InfoLine icon="ban-outline" text={t('me.safety.blocked.body')} />
-          </Card>
+          <BlockedList />
         </View>
 
         <View style={{ gap: spacing.sm }}>
@@ -161,8 +162,8 @@ export default function SafetyCenterScreen() {
         footer={
           <View style={{ gap: spacing.sm }}>
             <Button label={t('me.safety.call', { number: local })} variant="danger" icon="call-outline" fullWidth onPress={() => call(local)} />
-            {!isPaused(pausedUntil) ? (
-              <Button label={t('me.safety.pressured.pauseCta')} variant="outline" icon="pause-outline" fullWidth onPress={pauseNow} testID="safety-pause" />
+            {!privacy.data?.paused ? (
+              <Button label={t('me.safety.pressured.pauseCta')} variant="outline" icon="pause-outline" fullWidth loading={pause.isPending} onPress={pauseNow} testID="safety-pause" />
             ) : null}
             <Button label={t('common.actions.close')} variant="ghost" fullWidth onPress={() => setPressuredOpen(false)} />
           </View>

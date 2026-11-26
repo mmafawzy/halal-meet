@@ -2,6 +2,8 @@
  * Client-side API surface. Mirrors `ROUTES` in @halal-meet/core (one method per route).
  * Two implementations: `live.ts` (HTTP) and `mock/` (in-memory demo backend).
  */
+import type { BillingSyncResponse, MeBillingResponse } from '@halal-meet/core';
+import type { IncomingPhotoRequest, Photo, PhotoAccessView, PhotoRequestDecisionBody } from '@halal-meet/core';
 import type {
   Answer,
   AnswerTopicBody,
@@ -44,11 +46,24 @@ import type {
   Usage,
 } from '@halal-meet/core';
 
+import type { AdminApi } from './admin';
+import type { PrivacyApi } from './privacy';
+import type { NotificationsApi } from './notifications';
+
 /** PUT /me/profile body. `locale` is sent alongside the profile so the server can localise pushes. */
 export type ProfileUpdateBody = ProfileInput & { locale?: Locale };
 
 export interface HalalMeetApi {
   readonly mode: 'mock' | 'live';
+
+  /** Moderation console (MODERATION_ROUTES; staff only). See ./admin.ts. */
+  admin: AdminApi;
+
+  /** Privacy centre + loose-end reads (PRIVACY_ROUTES). See ./privacy.ts. */
+  privacy: PrivacyApi;
+
+  /** Push devices, notification preferences, inbox and realtime events (NOTIFICATION_ROUTES). See ./notifications.ts. */
+  notifications: NotificationsApi;
 
   // Auth
   otpRequest(body: OtpRequestBody): Promise<void>; // POST /auth/otp/request
@@ -85,6 +100,9 @@ export interface HalalMeetApi {
 
   // Billing
   devGrant(body: DevGrantBody): Promise<void>; // POST /billing/dev/grant
+  myBilling(): Promise<MeBillingResponse>; // GET /me/billing (BILLING_ROUTES)
+  billingSync(): Promise<BillingSyncResponse>; // POST /billing/sync (501 store_sync_unavailable without a RevenueCat API key)
+  claimFreePass(): Promise<BillingSyncResponse>; // POST /billing/free-pass (Plus quarterly pass; 403 free_pass_unavailable)
 
   // Safety
   report(body: ReportBody): Promise<void>; // POST /reports
@@ -113,6 +131,16 @@ export interface HalalMeetApi {
   putGuardianApproval(memberId: string, matchId: string, body: GuardianApprovalBody): Promise<void>;
   leaveGuardianship(memberId: string): Promise<void>; // DELETE /guardian/members/:memberId
 
+  // Photos & photo privacy (PHOTO_ROUTES in @halal-meet/core)
+  myPhotos(): Promise<Photo[]>; // GET /me/photos
+  uploadPhoto(input: PhotoUploadInput): Promise<Photo>; // POST /me/photos (multipart; 409 photo_limit, 413, 415 unsupported_type)
+  deletePhoto(id: string): Promise<void>; // DELETE /me/photos/:id
+  reorderPhotos(ids: string[]): Promise<Photo[]>; // PUT /me/photos/order (main photo first)
+  requestPhotoAccess(ownerId: string): Promise<PhotoAccessView>; // POST /photos/requests (409 not_requestable, 429 rate_limited)
+  photoAccess(ownerId: string): Promise<PhotoAccessView>; // GET /photos/requests/outgoing/:ownerId
+  incomingPhotoRequests(): Promise<IncomingPhotoRequest[]>; // GET /photos/requests/incoming
+  decidePhotoRequest(id: string, decision: PhotoRequestDecisionBody['decision']): Promise<void>; // PUT /photos/requests/:id (decline is silent / revokes)
+
   /** Mock-only helpers (undefined in live mode). */
   dev?: {
     /**
@@ -134,6 +162,15 @@ export interface HalalMeetApi {
     /** Wipes the in-memory backend. */
     reset(): Promise<void>;
   };
+}
+
+/** A picked image for POST /me/photos: a file://, blob: or data: URI plus optional metadata from the picker. */
+export interface PhotoUploadInput {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+  /** 0 = main photo; omitted = append. */
+  position?: number;
 }
 
 export class ApiError extends Error {

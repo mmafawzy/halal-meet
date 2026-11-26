@@ -5,7 +5,9 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { api } from '@/api';
 import { tokenStorage } from '@/api/tokenStorage';
+import { getReligiousConsent } from '@/components/onboarding/draft';
 import { InlineNote, OnboardingFrame } from '@/components/onboarding/OnboardingFrame';
+import { recordSignupConsents } from '@/components/privacy/consents';
 import { Button, Icon, Text } from '@/components/ui';
 import { useT } from '@/i18n';
 import { useSession } from '@/state/session';
@@ -33,6 +35,8 @@ export default function OtpScreen() {
     onSuccess: async (res) => {
       await tokenStorage.set(res.token);
       setToken(res.token, res.accountId);
+      // Terms, privacy and religious-data consents from the phone step (PUT /me/consents/:kind).
+      void recordSignupConsents(getReligiousConsent());
       // Guardians signing in to accept an invitation go straight back to it — no member onboarding.
       const pendingGuardianCode = useSession.getState().pendingGuardianCode;
       if (pendingGuardianCode) {

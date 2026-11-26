@@ -8,3 +8,8 @@ export * from './ranking';
 export * from './render';
 export * from './api';
 export * from './guardians';
+export * from './notifications';
+export * from './billing';
+export * from './moderation';
+export * from './privacy';
+export * from './photos';

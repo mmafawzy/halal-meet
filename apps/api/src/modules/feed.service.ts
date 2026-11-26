@@ -29,7 +29,9 @@ import { EntitlementsService } from './entitlements';
 import { MembersService, uniq, type Member } from './members';
 import { UsageService } from './usage';
 import { toProfileCard } from './compat';
+import { visibleIds, visibleToSql } from './visibility';
 import { DAY_MS } from '../common/time';
+import { topPicksCycleFor } from './top-picks-time';
 
 export const PAGE_SIZE = 20;
 const QUEUE_TTL_MS = 6 * 3_600_000; // spec 04 §4.1: queue refreshed every 6 h
@@ -135,7 +137,10 @@ export class FeedService {
 
     // Exclude today's Top Picks from the feed (spec 04 §4.3).
     const pickIds = new Set(await this.topPickIdsToday(viewerId, now));
-    const ordered = this.orderForPage(entry).filter((c) => !pickIds.has(c.member.id));
+    // Queues are cached for hours: re-check visibility (pause, incognito, deletion, moderation) at serve time.
+    const queued = this.orderForPage(entry);
+    const visible = await visibleIds(this.db, viewerId, queued.map((c) => c.member.id), now);
+    const ordered = queued.filter((c) => !pickIds.has(c.member.id) && visible.has(c.member.id));
     const slice = ordered.slice(offset, offset + PAGE_SIZE);
 
     const seriousSenders = await this.seriousSendersTo(viewerId);
@@ -208,7 +213,7 @@ export class FeedService {
     const candidateIds = await this.candidatesByLocation(viewer, scopeCountries, now);
     const all =
       candidateIds.length > 0
-        ? await this.members.load(and(inArray(t.profiles.accountId, candidateIds), eq(t.accounts.status, 'active')), now)
+        ? await this.members.load(and(inArray(t.profiles.accountId, candidateIds), visibleToSql(viewer.id, now)), now)
         : [];
 
     const [passed, interested, matched, blocked, seen, seriousSenders, pending, responsiveness] = await Promise.all([
@@ -538,7 +543,7 @@ export class FeedService {
           ne(t.profiles.gender, viewer.match.gender),
           ne(t.profiles.accountId, viewer.id),
           gt(t.profiles.createdAt, since),
-          eq(t.accounts.status, 'active'),
+          visibleToSql(viewer.id, now),
         ),
       );
     void now;
@@ -553,7 +558,7 @@ export class FeedService {
   private async passportSuggestions(viewer: Member, _tier: PlanTier, now: Date): Promise<Array<{ country: string; compatibleCount: number }>> {
     const inScope = new Set(this.scopeFor(viewer.match).countries);
     const all = await this.members.load(
-      and(ne(t.profiles.accountId, viewer.id), ne(t.profiles.gender, viewer.match.gender), eq(t.accounts.status, 'active')),
+      and(ne(t.profiles.accountId, viewer.id), ne(t.profiles.gender, viewer.match.gender), visibleToSql(viewer.id, now)),
       now,
     );
     const pending = await this.usage.pendingInbound([viewer.id]);
@@ -618,7 +623,9 @@ export class FeedService {
     const viewer = await this.members.get(viewerId, now);
     if (!viewer) throw new Error('profile_required');
     const { entitlements } = await this.entitlements.snapshot(viewerId, now);
-    const day = now.toISOString().slice(0, 10);
+    // Picks refresh at the member's chosen local time (default after Maghrib), not at UTC midnight.
+    const cycle = await topPicksCycleFor(this.db, viewerId, now);
+    const day = cycle.day;
 
     let picks = await this.picksFor(viewerId, day);
     if (picks.length === 0) {
@@ -637,17 +644,18 @@ export class FeedService {
     }
 
     const members = await this.members.getMany(picks.map((p) => p.candidateId), now);
+    const visible = await visibleIds(this.db, viewerId, picks.map((p) => p.candidateId), now);
     const cards: ProfileCard[] = [];
     for (const p of picks) {
       const m = members.get(p.candidateId);
-      if (!m) continue;
+      if (!m || !visible.has(m.id)) continue;
       cards.push(toProfileCard(m, { tier: entitlements.tier, compat: computeCompatibility(viewer.match, m.match) }));
     }
-    return { cards, refreshesAt: nextRefresh(now) };
+    return { cards, refreshesAt: cycle.refreshesAt.toISOString() };
   }
 
   async topPickIdsToday(viewerId: string, now = new Date()): Promise<string[]> {
-    return (await this.picksFor(viewerId, now.toISOString().slice(0, 10))).map((p) => p.candidateId);
+    return (await this.picksFor(viewerId, (await topPicksCycleFor(this.db, viewerId, now)).day)).map((p) => p.candidateId);
   }
 
   private async picksFor(viewerId: string, day: string) {
@@ -726,8 +734,3 @@ function lockedDimension(compat: CompatibilityResult | undefined, answered: Set<
   return best;
 }
 
-/** Top Picks refresh at the next local-ish midnight (UTC day boundary). */
-function nextRefresh(now: Date): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-  return d.toISOString();
-}

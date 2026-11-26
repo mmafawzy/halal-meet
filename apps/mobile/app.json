@@ -32,6 +32,7 @@
       "expo-router",
       "expo-font",
       "expo-secure-store",
+      ["expo-notifications", { "color": "#0F1B2D", "defaultChannel": "default" }],
       ["expo-localization", { "supportsRTL": true }],
       [
         "expo-image-picker",
@@ -48,6 +49,14 @@
         }
       ]
     ],
+    "extra": {
+      "billing": {
+        "revenuecatIosKey": null,
+        "revenuecatAndroidKey": null,
+        "offering": "default",
+        "products": {}
+      }
+    },
     "experiments": {
       "typedRoutes": true
     }

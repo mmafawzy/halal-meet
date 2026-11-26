@@ -9,6 +9,7 @@ import type {
 } from '@halal-meet/core';
 import { QUESTIONS, QUESTIONS_BY_KEY, CORE_TOPIC_KEYS, computeCompatibility } from '@halal-meet/core';
 import type { Member } from './members';
+import { decidePhotoState, sharedMainPhoto } from './photo-access';
 
 /**
  * Applies plan gating to a compatibility report (spec 01 §23, spec 04 §2.5):
@@ -86,21 +87,21 @@ export function passportBadge(member: Member): PassportBadge | null {
   };
 }
 
-/** Photo state per the viewer (client shows initials when there is no photo). */
+/**
+ * Baseline photo state, before the viewer is known (client shows initials when there is no photo).
+ * The authoritative per-viewer state and the signed photoUrl are applied to every card in HTTP responses by
+ * PhotosService.decorate (photos.module.ts), which also knows about approved requests and guardians.
+ */
 export function photoState(member: Member, viewerIsMatch: boolean): ProfileCard['photoState'] {
-  if (!member.row.photoUrl) return 'visible';
-  switch (member.row.photoVisibility) {
-    case 'public':
-      return 'visible';
-    case 'matches':
-      return viewerIsMatch ? 'visible' : 'blurred';
-    case 'request':
-      return 'locked';
-    case 'family':
-      return viewerIsMatch ? 'visible' : 'locked';
-    default:
-      return 'blurred';
-  }
+  if (!sharedMainPhoto(member.photos)) return 'visible';
+  return decidePhotoState({
+    visibility: member.row.photoVisibility,
+    isOwner: false,
+    isGuardian: false,
+    eligible: true,
+    isMatch: viewerIsMatch,
+    approved: false,
+  });
 }
 
 export interface CardOptions {
@@ -120,7 +121,7 @@ export function toProfileCard(member: Member, opts: CardOptions): ProfileCard {
     age: member.match.age,
     country: member.row.country,
     city: member.row.city,
-    photoUrl: member.row.photoUrl,
+    photoUrl: null, // signed per viewer by PhotosService.decorate
     photoState: photoState(member, opts.viewerIsMatch ?? false),
     verifications: member.verifications,
     halalMode: member.row.halalMode as ProfileCard['halalMode'],

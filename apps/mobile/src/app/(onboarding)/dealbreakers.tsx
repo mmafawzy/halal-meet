@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
+import { api } from '@/api';
 import { usePutPreferences } from '@/api/hooks';
 import {
   isSameAsSelf,
@@ -55,6 +56,9 @@ export default function DealbreakersScreen() {
   const ensurePreferences = async (): Promise<boolean> => {
     const s = useSession.getState();
     if (s.preferences) return true;
+    // Another device (or an earlier session) may already have saved them: GET /me/preferences.
+    const existing = await api.privacy.preferences().catch(() => null);
+    if (existing?.saved) return true;
     const gender = s.draft.gender ?? s.gender;
     const age = ageFromBirthDate(s.draft.birthDate);
     if (!gender || age === null) return true;

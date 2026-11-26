@@ -10,6 +10,7 @@ import { InlineNote } from '@/components/onboarding/OnboardingFrame';
 import { ConfirmSheet } from '@/components/me/ConfirmSheet';
 import { toProfileInput } from '@/components/me/profileInput';
 import { useSaveProfile } from '@/components/me/useSaveProfile';
+import { PhotosLink } from '@/components/photos/PhotosLink';
 import {
   Button,
   Chip,
@@ -133,6 +134,7 @@ function EditForm({ initial }: { initial: ProfileInput }) {
       testID="edit-screen"
     >
       <View style={{ gap: spacing.lg }}>
+        <PhotosLink />
         <SectionTitle title={t('me.edit.sections.basics')} style={{ marginBottom: 0 }} />
 
         <Field label={t('onboarding.basics.firstName')} hint={t('onboarding.basics.firstNameHint')} error={attempted && !nameOk ? t('onboarding.basics.required') : null}>

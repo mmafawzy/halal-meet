@@ -7,6 +7,7 @@ import { useAccountActions } from '@/components/me/accountActions';
 import { ConfirmSheet } from '@/components/me/ConfirmSheet';
 import { DemoTools, LanguageCard, PlanCard, PreferencesSummary, ProfileSummaryCard, VerificationCard } from '@/components/me/MeSections';
 import { Button, EmptyState, ErrorState, ListRow, LoadingState, RowGroup, Screen, Text } from '@/components/ui';
+import { NotificationSettingsRow } from '@/components/notifications/NotificationSettingsRow';
 import { useT } from '@/i18n';
 import { colors, spacing } from '@/theme';
 
@@ -70,6 +71,7 @@ export default function ProfileTab() {
             description={t('me.links.privacyBody')}
             onPress={() => router.push('/settings/privacy')}
           />
+          <NotificationSettingsRow />
           <ListRow
             icon="shield-outline"
             label={t('me.links.safety')}

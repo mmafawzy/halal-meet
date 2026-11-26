@@ -2,6 +2,7 @@
  * Builds i18next resources from the per-feature string modules in ./strings.
  * Each module exports `en`, `ar` (same shape) and optionally `arGendered` (extra `_m`/`_f`/`_he`/`_she` keys).
  */
+import * as admin from './strings/admin';
 import * as chat from './strings/chat';
 import * as common from './strings/common';
 import * as discover from './strings/discover';
@@ -12,6 +13,8 @@ import * as onboarding from './strings/onboarding';
 import * as passport from './strings/passport';
 import * as paywall from './strings/paywall';
 import * as profile from './strings/profile';
+import * as photos from './strings/photos';
+import * as notifications from './strings/notifications';
 
 type Dict = { [k: string]: string | Dict };
 
@@ -31,6 +34,7 @@ export function deepMerge(a: Dict, b: Dict): Dict {
 }
 
 const MODULES: Record<string, StringModule> = {
+  admin: admin as unknown as StringModule,
   common: common as unknown as StringModule,
   onboarding: onboarding as unknown as StringModule,
   discover: discover as unknown as StringModule,
@@ -41,6 +45,8 @@ const MODULES: Record<string, StringModule> = {
   me: me as unknown as StringModule,
   passport: passport as unknown as StringModule,
   paywall: paywall as unknown as StringModule,
+  photos: photos as unknown as StringModule,
+  notifications: notifications as unknown as StringModule,
 };
 
 function build(lang: 'en' | 'ar'): Dict {

@@ -20,6 +20,7 @@ import * as t from '../db/schema';
 import { ageFromBirthDate } from '../common/time';
 import { EntitlementsService } from './entitlements';
 import { groupBy, uniq } from '../common/collections';
+import { loadPhotoSummaries, ownMainPhoto, photoPath, type MemberPhoto } from './photo-access';
 export { groupBy, uniq } from '../common/collections';
 
 export type ProfileRow = typeof t.profiles.$inferSelect;
@@ -33,6 +34,14 @@ export interface Member {
   createdAt: Date;
   lastActiveAt: Date | null;
   status: string;
+  /** Non-rejected photos, main first (photos workstream; see photo-access.ts). */
+  photos?: MemberPhoto[];
+}
+
+/** The owner's main photo as a URL bound to the owner (made absolute by the photo interceptor). */
+function ownPhotoUrl(m: Member): string | null {
+  const main = ownMainPhoto(m.photos);
+  return main ? photoPath(m.id, main.id) : null;
 }
 
 export function defaultPreferences(gender: Gender, age: number): MatchPreferences {
@@ -147,6 +156,7 @@ export class MembersService {
 
     // Passport destinations only count while the holder is entitled (spec: "only if entitled").
     const capacityBy = await this.entitlements.passportCapacities([...passBy.keys()], now);
+    const photosBy = await loadPhotoSummaries(this.db, ids);
 
     return rows.map(({ p, a }) => {
       const age = ageFromBirthDate(p.birthDate, now);
@@ -187,7 +197,7 @@ export class MembersService {
           : defaultPreferences(p.gender as Gender, age),
         passport,
       };
-      return { id: p.accountId, row: p, match, verifications, createdAt: a.createdAt, lastActiveAt: a.lastActiveAt, status: a.status };
+      return { id: p.accountId, row: p, match, verifications, createdAt: a.createdAt, lastActiveAt: a.lastActiveAt, status: a.status, photos: photosBy.get(p.accountId) ?? [] };
     });
   }
 
@@ -226,7 +236,7 @@ export class MembersService {
       relocateCountries: r.relocateCountries,
       intlVisibility: r.intlVisibility as ProfileInput['intlVisibility'],
     };
-    return { ...input, id: m.id, age: m.match.age, photoUrl: r.photoUrl, verifications: m.verifications, profileStrength: r.profileStrength };
+    return { ...input, id: m.id, age: m.match.age, photoUrl: ownPhotoUrl(m), verifications: m.verifications, profileStrength: r.profileStrength };
   }
 
   /** Recomputes and stores the cached profile strength. */

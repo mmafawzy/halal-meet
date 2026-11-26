@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { InlineNote, OnboardingFrame } from '@/components/onboarding/OnboardingFrame';
 import { Card, Field, Icon, OptionCard, RowGroup, Text, TextField, ToggleRow, Button, type IconName } from '@/components/ui';
+import { finishNotificationSetup, toServerTopPicksTime } from '@/components/notifications/registration';
 import { useT } from '@/i18n';
 import { useSession, type OnboardingDraft } from '@/state/session';
 import { colors, spacing } from '@/theme';
@@ -23,9 +24,9 @@ const isValidTime = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v.trim());
 /**
  * Screen 20 — guardian & notifications setup: Top Picks delivery time, the notification explanation
  * (shown before any permission prompt) and the "Add a guardian?" pointer to the Family tab.
- * The choices are stored in the onboarding draft.
- * TODO: request the OS permission and schedule Top Picks once expo-notifications and a
- * notification-settings route exist; the guardian invite lives in the Family tab (device-only preview).
+ * The choices are stored in the onboarding draft and saved with PUT /me/notification-prefs; "Finish" then asks
+ * for the OS notification permission (native) and registers the push token in live mode.
+ * The guardian invite lives in the Family tab.
  */
 export default function NotificationsScreen() {
   const t = useT();
@@ -39,9 +40,14 @@ export default function NotificationsScreen() {
   const customInvalid = time === 'custom' && !isValidTime(custom);
   const wali = draft.halalMode === 'wali';
 
-  const finish = () => {
-    if (customInvalid) return;
+  const [saving, setSaving] = useState(false);
+  const finish = async () => {
+    if (customInvalid || saving) return;
     updateDraft({ topPicksTime: time, customTime: custom.trim(), notifications: notify });
+    // The OS permission prompt comes only now, after the explanation above (higher opt-in, spec 01 §20).
+    setSaving(true);
+    await finishNotificationSetup({ wantsPush: notify, topPicksTime: toServerTopPicksTime(time, custom) }).catch(() => undefined);
+    setSaving(false);
     router.push('/(onboarding)/ready');
   };
 
@@ -57,7 +63,8 @@ export default function NotificationsScreen() {
           size="lg"
           fullWidth
           disabled={customInvalid}
-          onPress={finish}
+          loading={saving}
+          onPress={() => void finish()}
           testID="notifications-finish"
         />
       }

@@ -54,7 +54,8 @@ The data layer is selected by env vars (Expo inlines `EXPO_PUBLIC_*` at build ti
 - HTTP 402 `{ error: 'limit_reached', usage }` → `LimitReachedError` → limit sheet / paywall.
 - 401 clears the token.
 - List endpoints accept either a bare array or `{ matches | messages | answers | countries: [...] }`.
-- Chat polls `GET /matches/:id/messages` every 2 s, because the contract has no realtime channel yet.
+- Realtime: on the web the app opens `GET /events?token=` (Server-Sent Events, `NOTIFICATION_ROUTES`) and refreshes chat, matches and the inbox on `message` / `match` / `notification` events; while the stream is open the chat polls only every 15 s. On native, in mock mode or when the stream drops, the chat polls `GET /matches/:id/messages` every 2 s.
+- Push: on iOS/Android the Expo push token is registered with `POST /me/devices` once permission is granted (needs an EAS `projectId` in `app.json` → `extra.eas`). Taps open `data.url`.
 
 ## Folder structure
 
@@ -106,11 +107,12 @@ apps/mobile
 | Area | Status |
 |---|---|
 | Onboarding, Discover feed (infinite, cursor + prefetch), Top Picks, profile, Why we match, Ask Before You Match, interests/limits, matches, chat (stages, topic cards, safety banners, end respectfully), Passport, paywall | Implemented against the API contract. Fully working in mock mode. |
-| Purchases | `src/billing` uses `POST /billing/dev/grant` in mock/dev. **RevenueCat / store IAP is a TODO** (adapter stub included). |
+| Purchases | `src/billing` adapter: RevenueCat (`react-native-purchases`, live mode on iOS/Android dev/release builds when `EXPO_PUBLIC_REVENUECAT_IOS_KEY` / `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` or `expo.extra.billing` keys are set; not in Expo Go/web), dev grant (`POST /billing/dev/grant`) in mock mode and live dev builds, and a "buy in the mobile app" notice on live release web. Server truth comes from the RevenueCat webhook (`BILLING_ROUTES` in `packages/core/src/billing.ts`); the paywall shows `GET /me/billing` (renewal date, store, billing issues, Manage subscription). |
 | Photo upload | Picker + visibility preview only. The contract has no upload route, so the photo stays on the device. |
 | Family / guardians | Implemented against `GUARDIAN_ROUTES` (`packages/core/src/guardians.ts`): invite with the real one-time code (link `https://halalmeet.app/g/<code>`), re-send (re-issues the code), permissions, pause/resume, remove, and guardians' opinions on your matches and on profiles you share (`POST`/`DELETE /guardians/shares`; shared ids are remembered on the device because there is no GET). Guardian presence in chats comes from `MatchSummary.guardians`, and stages 5/6 wait for an approving guardian (`pendingGuardianApproval`, calm banner in the chat and journey sheet). Guardian side: `/guardian/<code>` (public preview with gendered Arabic from `memberGender` → phone/OTP only, no member onboarding → accept), `/guardian` (people you support), `/guardian/member/<id>` (dashboard, Approve / "Discuss first" via `PUT …/approvals/:matchId`, "Shared with you", opinions, leave). In mock mode "Simulate acceptance (demo)" stands in for the guardian's phone, and the demo invitation `DEMOWALI` lets you try the guardian side on one device. |
 | Saved profiles ("Save for later") | Stored on the device (no API route). |
 | Match preferences | `PUT /me/preferences` works. The last saved value is cached locally because the contract has no GET. |
-| Notifications, voice intro, video calls, AI features, Hijri dates, Eastern numerals | Not implemented (copy and placeholders only). |
-| Realtime chat | Polling, because the contract has no websocket yet. |
+| Notifications | Inbox (`/notifications`, bell in the Discover header), settings (`/notifications/settings`, Profile → Settings → Notifications), permission at the onboarding notifications step, prefs saved with `PUT /me/notification-prefs`, push tap routing. Mock mode adds inbox items for seeded interests, replies, matches and guardian events (no real pushes). |
+| Voice intro, video calls, AI features, Hijri dates, Eastern numerals | Not implemented (copy and placeholders only). |
+| Realtime chat | SSE (`GET /events`) on the web in live mode, 2 s polling otherwise. |
 | Identity verification | Mock-only "Verify now (demo)". The vendor SDK is out of scope. |
