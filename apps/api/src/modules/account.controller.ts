@@ -4,6 +4,8 @@ import {
   Body,
   Controller,
   ForbiddenException,
+  HttpException,
+  ServiceUnavailableException,
   Get,
   HttpCode,
   Inject,
@@ -29,6 +31,7 @@ import { Public, UserId, ZodPipe } from '../common/http';
 import { ageFromBirthDate, tzForCountry } from '../common/time';
 import { uuidv7 } from '../common/ids';
 import { AuthService } from './auth.service';
+import { OtpRateLimitedError, OtpUnavailableError } from './otp';
 import { CountriesService } from './countries';
 import { EntitlementsService } from './entitlements';
 import { MembersService, computeProfileStrength, defaultPreferences, sanitizeAnswer } from './members';
@@ -61,8 +64,14 @@ export class AccountController {
   @Public()
   @Post('auth/otp/request')
   @HttpCode(200)
-  otpRequest(@Body(new ZodPipe(otpRequestSchema)) body: { phone: string }): { ok: true } {
-    this.auth.issueCode(body.phone);
+  async otpRequest(@Body(new ZodPipe(otpRequestSchema)) body: { phone: string; channel?: 'sms' | 'whatsapp' }): Promise<{ ok: true }> {
+    try {
+      await this.auth.issueCode(body.phone, body.channel ?? 'sms');
+    } catch (e) {
+      if (e instanceof OtpRateLimitedError) throw new HttpException({ error: 'otp_rate_limited' }, 429);
+      if (e instanceof OtpUnavailableError) throw new ServiceUnavailableException({ error: 'otp_unavailable' });
+      throw e;
+    }
     return { ok: true };
   }
 
@@ -70,7 +79,7 @@ export class AccountController {
   @Post('auth/otp/verify')
   @HttpCode(200)
   async otpVerify(@Body(new ZodPipe(otpVerifySchema)) body: { phone: string; code: string }): Promise<OtpVerifyResponse> {
-    if (!this.auth.verifyCode(body.phone, body.code)) throw new ForbiddenException({ error: 'invalid_code' });
+    if (!(await this.auth.verifyCode(body.phone, body.code))) throw new ForbiddenException({ error: 'invalid_code' });
     const existing = await this.db.select().from(t.accounts).where(eq(t.accounts.phoneE164, body.phone));
     const account = existing[0];
     if (account) {

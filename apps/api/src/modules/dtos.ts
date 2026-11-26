@@ -3,7 +3,7 @@ import { QUESTIONS_BY_KEY } from '@halal-meet/core';
 
 export const phoneSchema = z.string().regex(/^\+[1-9]\d{6,15}$/, 'phone must be E.164, e.g. +201000000001');
 
-export const otpRequestSchema = z.object({ phone: phoneSchema });
+export const otpRequestSchema = z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional() });
 export const otpVerifySchema = z.object({ phone: phoneSchema, code: z.string().min(4).max(8) });
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
