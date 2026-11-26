@@ -97,6 +97,8 @@ export interface GuardianOpinion {
   guardianName: string;
   relationship: GuardianRelationship;
   subjectId: string;
+  /** First name of the person the opinion is about (they may be a shared profile, not a match). */
+  subjectFirstName: string;
   opinion: GuardianOpinionValue;
   note: string | null;
   updatedAt: string;

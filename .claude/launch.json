@@ -6,6 +6,19 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "G:\\Code\\halal-meet\\apps\\mobile\\preview.cmd"],
       "port": 8081
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "G:\\Code\\halal-meet\\apps\\api\\dev.cmd"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "mobile-web-live",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "G:\\Code\\halal-meet\\apps\\mobile\\preview-live.cmd"],
+      "port": 8083
     }
   ]
 }

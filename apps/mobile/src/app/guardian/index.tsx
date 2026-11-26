@@ -115,7 +115,7 @@ export default function GuardianHomeScreen() {
               value={code}
               onChangeText={setCode}
               placeholder={t('family.guardianSide.home.codePlaceholder')}
-              autoCapitalize="characters"
+              autoCapitalize="none"
               autoCorrect={false}
               maxLength={24}
               returnKeyType="go"

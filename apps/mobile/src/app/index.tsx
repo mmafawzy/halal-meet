@@ -36,7 +36,9 @@ export default function Index() {
   if (!token) return <Redirect href="/(onboarding)/welcome" />;
   if (guardianOnly && !done) return <Redirect href={GUARDIAN_HOME} />;
 
-  if (me.isLoading) {
+  // `isPending`, not `isLoading`: right after sign-in the query has just been enabled and has not started
+  // fetching yet, so `isLoading` is still false and the gate would wrongly resume onboarding.
+  if (me.isPending && !me.isError) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: spacing.xl }}>
         <Wordmark />

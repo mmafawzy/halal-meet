@@ -221,7 +221,7 @@ describe('guardians: opinions, removal and leaving', () => {
 
     const mine = await ctx.http.get('/guardians/opinions').set(auth(saraToken)).expect(200);
     expect(mine.body).toHaveLength(1);
-    expect(mine.body[0]).toMatchObject({ guardianName: 'Baba', relationship: 'father', subjectId: ahmed.id, opinion: 'support', note: null });
+    expect(mine.body[0]).toMatchObject({ guardianName: 'Baba', relationship: 'father', subjectId: ahmed.id, subjectFirstName: 'Ahmed', opinion: 'support', note: null });
 
     const dash = await ctx.http.get(`/guardian/members/${sara.id}`).set(auth(fatherToken)).expect(200);
     expect(dash.body.introductions[0].opinion).toEqual({ value: 'support', note: null });

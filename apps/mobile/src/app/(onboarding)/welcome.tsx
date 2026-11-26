@@ -14,9 +14,9 @@ import { HalalModeLevels, WelcomePoints, WhyWeMatchSample } from '@/components/o
 import { Button, Field, IconButton, Screen, Sheet, Text, TextField, Wordmark } from '@/components/ui';
 import { useIsRTL, useT } from '@/i18n';
 import { directionProps } from '@/lib/direction';
+import { cleanInviteCode } from '@/components/family/shared';
 import { useSession } from '@/state/session';
 import { colors, palette, spacing } from '@/theme';
-import { GUARDIAN_HOME } from '@/components/family/shared';
 
 const COUNT = 3;
 
@@ -38,13 +38,12 @@ export default function WelcomeScreen() {
   const [index, setIndex] = useState(0);
   const [guardianOpen, setGuardianOpen] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
-  const cleanCode = inviteCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const cleanCode = cleanInviteCode(inviteCode);
 
+  // Signed in already (or just signed in while this screen is still mounted under phone/OTP): let the splash
+  // gate decide — it reads GET /me and opens Discover, resumes onboarding, or opens the guardian area.
   useEffect(() => {
-    const { pendingGuardianCode, guardianOnly } = useSession.getState();
-    if (token && pendingGuardianCode) router.replace({ pathname: '/guardian/[code]', params: { code: pendingGuardianCode } });
-    else if (token && guardianOnly) router.replace(GUARDIAN_HOME);
-    else if (token) router.replace('/(onboarding)/intention');
+    if (token) router.replace('/');
     else setStep('welcome');
   }, [token, setStep]);
 
@@ -194,7 +193,7 @@ export default function WelcomeScreen() {
             value={inviteCode}
             onChangeText={setInviteCode}
             placeholder={t('family.guardianSide.home.codePlaceholder')}
-            autoCapitalize="characters"
+            autoCapitalize="none"
             autoCorrect={false}
             maxLength={24}
             returnKeyType="go"

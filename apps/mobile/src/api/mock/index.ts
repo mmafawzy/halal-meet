@@ -279,8 +279,9 @@ function newInviteCode(): string {
   return out;
 }
 
+/** Demo codes are 8 letters/digits; accept them typed loosely (`k7q2-m9xa`). Real server codes are exact. */
 function normalizeCode(code: string): string {
-  return code.trim().toUpperCase();
+  return code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 }
 
 /** Example opinions seeded when a guardian "accepts" in the demo. */
@@ -1479,7 +1480,19 @@ export function createMockApi(opts: MockApiOptions = {}): HalalMeetApi {
           .map((o): GuardianOpinion | null => {
             const g = db.guardians.find((x) => x.id === o.guardianId);
             return g
-              ? { guardianId: g.id, guardianName: g.name, relationship: g.relationship, subjectId: o.subjectId, opinion: o.opinion, note: o.note, updatedAt: o.updatedAt }
+              ? {
+                  guardianId: g.id,
+                  guardianName: g.name,
+                  relationship: g.relationship,
+                  subjectId: o.subjectId,
+                  subjectFirstName: (() => {
+                    const seed = seedById(o.subjectId);
+                    return seed ? (locale() === 'ar' ? seed.name[1] : seed.name[0]) : '';
+                  })(),
+                  opinion: o.opinion,
+                  note: o.note,
+                  updatedAt: o.updatedAt,
+                }
               : null;
           })
           .filter((o): o is GuardianOpinion => o !== null)

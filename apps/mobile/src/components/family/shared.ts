@@ -54,18 +54,7 @@ export function guardianGender(r: GuardianRelationship): Gender {
  */
 export const GUARDIAN_HOME = '/guardian' as Href;
 
-/** Public base of guardian invitation links; `/g/<code>` opens `src/app/guardian/[code].tsx`. */
-export const INVITE_LINK_BASE = 'https://halalmeet.app/g/';
-
-/** The invitation link for a code returned by POST /guardians or POST /guardians/:id/invite. */
-export function inviteLink(code: string): string {
-  return `${INVITE_LINK_BASE}${code}`;
-}
-
-/** Normalises a code from a link or typed input (`k7q2-m9xa` → `K7Q2M9XA`). */
-export function cleanInviteCode(raw: string | undefined): string {
-  return (raw ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-}
+export { INVITE_LINK_BASE, cleanInviteCode, inviteLink } from '@/lib/inviteCode';
 
 /** The `error` code of a failed API call (`cannot_guard_self`, `guardian_paused`…), with its HTTP status. */
 export function apiError(e: unknown): { status: number; code: string } | null {

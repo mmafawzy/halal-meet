@@ -217,6 +217,7 @@ function makeProfile(opts: { country: string; gender: Gender; index: number; dem
 async function wipe(db: Db): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
+      stage_approvals, guardian_shares, guardian_opinions, guardianships,
       topic_answers, topic_coverage, messages, stage_readiness, matches,
       interests, passes, blocks, reports, top_picks, feed_impressions,
       passport_destinations, purchases, subscriptions, usage_events,

@@ -106,16 +106,18 @@ export class GuardiansService {
 
   async opinionsForMember(memberId: string): Promise<GuardianOpinion[]> {
     const rows = await this.db
-      .select({ o: t.guardianOpinions, g: t.guardianships })
+      .select({ o: t.guardianOpinions, g: t.guardianships, subjectFirstName: t.profiles.firstName })
       .from(t.guardianOpinions)
       .innerJoin(t.guardianships, eq(t.guardianOpinions.guardianshipId, t.guardianships.id))
+      .leftJoin(t.profiles, eq(t.profiles.accountId, t.guardianOpinions.subjectId))
       .where(eq(t.guardianships.memberId, memberId));
     return rows
-      .map(({ o, g }) => ({
+      .map(({ o, g, subjectFirstName }) => ({
         guardianId: g.id,
         guardianName: g.name,
         relationship: g.relationship as GuardianRelationship,
         subjectId: o.subjectId,
+        subjectFirstName: subjectFirstName ?? '',
         opinion: o.opinion as GuardianOpinionValue,
         note: o.note,
         updatedAt: o.updatedAt.toISOString(),

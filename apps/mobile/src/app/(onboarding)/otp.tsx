@@ -39,6 +39,12 @@ export default function OtpScreen() {
         router.replace({ pathname: '/guardian/[code]', params: { code: pendingGuardianCode } });
         return;
       }
+      // Returning accounts go through the splash gate, which reads GET /me and opens Discover, resumes
+      // onboarding, or opens the guardian home. Only brand-new accounts start the member onboarding here.
+      if (!res.isNew) {
+        router.replace('/');
+        return;
+      }
       setStep('intention');
       router.replace('/(onboarding)/intention');
     },

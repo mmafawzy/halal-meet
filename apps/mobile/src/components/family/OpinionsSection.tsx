@@ -33,9 +33,10 @@ export function OpinionsSection({ opinions, matches }: { opinions: GuardianOpini
           ) : null}
           {opinions.map((o, i) => {
             const m = bySubject.get(o.subjectId);
-            const subjectName = m?.other.firstName;
+            const subjectName = m?.other.firstName || o.subjectFirstName || undefined;
             const shared = !m && sharedIds.includes(o.subjectId);
-            const linked = !!m || shared;
+            // Every opinion is about a real profile (a match or one you shared), so it can always open.
+            const linked = !!m || shared || !!o.subjectFirstName;
             return (
               <View key={`${o.guardianId}:${o.subjectId}`} testID={`family-opinion-${o.subjectId}`}>
                 {i > 0 ? <Divider style={{ marginBottom: spacing.md }} /> : null}
