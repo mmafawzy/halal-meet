@@ -37,3 +37,52 @@ jobs:
 
       - name: Build API
         run: pnpm --filter @halal-meet/api build
+
+  docker:
+    name: Docker image + smoke test (Postgres, Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: halalmeet
+          POSTGRES_PASSWORD: halalmeet
+          POSTGRES_DB: halalmeet
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U halalmeet" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -f apps/api/Dockerfile -t halal-meet-api:ci .
+
+      - name: Start API (production mode, real Postgres + Redis)
+        run: |
+          docker run -d --name api --network host \
+            -e NODE_ENV=production -e JWT_SECRET=ci-secret \
+            -e DATABASE_URL=postgres://halalmeet:halalmeet@localhost:5432/halalmeet \
+            -e REDIS_URL=redis://localhost:6379 \
+            -e PHOTO_STORAGE=memory -e NOTIFICATION_SCHEDULER=off \
+            halal-meet-api:ci
+          for i in $(seq 1 30); do curl -sf localhost:3000/health && break; sleep 2; done
+
+      - name: Smoke test
+        run: |
+          set -e
+          curl -sf localhost:3000/health | tee /dev/stderr | grep -q '"realtime":"redis"'
+          # Production never accepts the dev code and reports the missing OTP provider clearly.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/auth/otp/request -H 'content-type: application/json' -d '{"phone":"+201000000002"}')" = 503
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/auth/otp/verify -H 'content-type: application/json' -d '{"phone":"+201000000002","code":"000000"}')" = 403
+          # Migrations created the schema in real Postgres.
+          docker exec api node -e "const pg=require('pg');const c=new pg.Client(process.env.DATABASE_URL);c.connect().then(()=>c.query('select count(*) from guardianships')).then(r=>{console.log('tables ok',r.rows[0]);return c.end()}).catch(e=>{console.error(e);process.exit(1)})"
+
+      - name: Container logs
+        if: always()
+        run: docker logs api || true

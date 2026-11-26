@@ -4,6 +4,8 @@ import { CONFIG } from './config';
 import { DatabaseModule } from './db/database.module';
 import { AuthGuard } from './modules/auth.guard';
 import { AuthService } from './modules/auth.service';
+import { HealthController } from './modules/health.controller';
+import { OTP_PROVIDER, createOtpProvider } from './modules/otp';
 import { CountriesService } from './modules/countries';
 import { EntitlementsService } from './modules/entitlements';
 import { FeedService } from './modules/feed.service';
@@ -18,7 +20,7 @@ import { NotificationsService } from './modules/notifications.service';
 import { NotificationsController } from './modules/notifications.controller';
 import { NotificationScheduler } from './modules/notification-scheduler';
 import { PUSH_DRIVER, createPushDriver } from './modules/push';
-import { RealtimeHub } from './modules/realtime';
+import { REALTIME_BUS, RealtimeHub, createRealtimeBus } from './modules/realtime';
 import { UsageService } from './modules/usage';
 import { APP_GUARD } from '@nestjs/core';
 import { AccountController } from './modules/account.controller';
@@ -33,10 +35,11 @@ import { PhotosModule } from './modules/photos.module';
 @Global()
 @Module({
   imports: [DatabaseModule, PhotosModule],
-  controllers: [AccountController, DiscoverController, GuardiansController, NotificationsController, BillingController, ModerationController, PrivacyController],
+  controllers: [HealthController, AccountController, DiscoverController, GuardiansController, NotificationsController, BillingController, ModerationController, PrivacyController],
   providers: [
     { provide: CONFIG, useValue: loadConfig() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: OTP_PROVIDER, useFactory: () => createOtpProvider() },
     AuthService,
     CountriesService,
     EntitlementsService,
@@ -49,6 +52,7 @@ import { PhotosModule } from './modules/photos.module';
     NotificationsService,
     ModerationService,
     AdminGuard,
+    { provide: REALTIME_BUS, useFactory: () => createRealtimeBus() },
     RealtimeHub,
     { provide: PUSH_DRIVER, useFactory: () => createPushDriver() },
     NotificationScheduler,

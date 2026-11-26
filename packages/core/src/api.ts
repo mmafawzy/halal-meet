@@ -27,7 +27,7 @@ import type {
 } from './types';
 
 // ───────── Auth ─────────
-export interface OtpRequestBody { phone: string }
+export interface OtpRequestBody { phone: string; /** Default sms. */ channel?: 'sms' | 'whatsapp' }
 export interface OtpVerifyBody { phone: string; code: string }
 export interface OtpVerifyResponse { token: string; accountId: string; isNew: boolean }
 

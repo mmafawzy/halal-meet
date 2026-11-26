@@ -62,7 +62,7 @@ export default function OtpScreen() {
     },
   });
 
-  const whatsapp = useMutation({ mutationFn: () => api.otpRequest({ phone }) });
+  const whatsapp = useMutation({ mutationFn: () => api.otpRequest({ phone, channel: 'whatsapp' }) });
 
   // Resend countdown.
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { main: 'src/main.ts', seed: 'src/seed/seed.ts' },
+  entry: { main: 'src/main.ts', seed: 'src/seed/seed.ts', 'purge-deletions': 'src/scripts/purge-deletions.ts' },
   format: ['esm'],
   target: 'node22',
   platform: 'node',
